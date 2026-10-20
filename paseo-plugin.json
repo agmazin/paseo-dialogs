@@ -1,7 +1,7 @@
 {
   "id": "paseo-dialogs",
   "name": "Диалоги",
-  "version": "0.0.0-spike.1",
+  "version": "0.2.0",
   "media": [],
   "requirements": {
     "paseo": ">=0.12.0"
