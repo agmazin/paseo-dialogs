@@ -34,7 +34,7 @@ export function observeTail(node: unknown, read: () => void) {
   };
 }
 
-declare const window: { paseoDesktop?: unknown };
+declare const window: { paseoDesktop?: unknown; location: { pathname: string; search: string } };
 export function hasBrowser() {
   return (
     Platform.OS === "web" &&
@@ -60,4 +60,62 @@ export function providerSvg(provider: string, size: number, color: string) {
     },
     createElement("path", { d: providerPaths[provider] }),
   );
+}
+
+// Paseo 0.12 exposes selection through accessible native tab elements, not SDK.
+// Read-only DOM adapter; never modifies the host tree.
+export function observeSelectedTab(onChange: (id: string | null) => void) {
+  if (Platform.OS !== "web") return () => {};
+  const doc = document as unknown as {
+    body: unknown;
+    querySelectorAll(selector: string): Iterable<{
+      getAttribute(name: string): string | null;
+      getClientRects(): { length: number };
+    }>;
+  };
+  const read = () => {
+    const tab = [...doc.querySelectorAll('[data-testid^="workspace-tab-"][aria-selected="true"]')]
+      .find((node) => node.getClientRects().length > 0);
+    onChange(tab?.getAttribute("data-testid")?.replace(/^workspace-tab-(agent|terminal)_/, "") ?? null);
+  };
+  const observer = new MutationObserver(read);
+  observer.observe(doc.body, { subtree: true, attributes: true, attributeFilter: ["aria-selected", "style"], childList: true });
+  read();
+  return () => observer.disconnect();
+}
+declare const MutationObserver: new (fn: () => void) => {
+  observe(node: unknown, options: unknown): void;
+  disconnect(): void;
+};
+
+export function isNavigationScreenActive(params: Record<string, string | undefined>) {
+  if (Platform.OS !== "web") return true;
+  if (!window.location.pathname.endsWith("/surface/navigate")) return false;
+  const query = Object.fromEntries(window.location.search.slice(1).split("&").map(pair => {
+    const [key, value = ""] = pair.split("=");
+    return [decodeURIComponent(key), decodeURIComponent(value.replace(/\+/g, " "))];
+  }));
+  return Object.entries(params).every(([key, value]) => query[`param.${key}`] === value);
+}
+
+// After openWorkspace, activate the terminal's native accessible tab if present.
+// Missing/closed tabs and non-web hosts keep the documented workspace fallback.
+export async function activateTerminalTab(id: string) {
+  if (Platform.OS !== "web" || !/^[a-zA-Z0-9_-]+$/.test(id)) return false;
+  const doc = document as unknown as {
+    querySelectorAll(selector: string): Iterable<{ getClientRects(): {length: number}; click(): void }>;
+  };
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const tab = [...doc.querySelectorAll(`[data-testid="workspace-tab-terminal_${id}"]`)]
+      .find(node => node.getClientRects().length > 0);
+    if (tab) { tab.click(); return true; }
+  }
+  return false;
+}
+
+export function menuAnchor(event: unknown): { x: number; y: number } | undefined {
+  if (Platform.OS !== "web") return undefined;
+  const rect = (event as { currentTarget?: { getBoundingClientRect?: () => {left: number; top: number} } }).currentTarget?.getBoundingClientRect?.();
+  return rect ? { x: rect.left, y: rect.top } : undefined;
 }

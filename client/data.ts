@@ -17,7 +17,7 @@ export async function agents(paseo: PaseoApi) {
   } while (cursor);
   return all
     .filter(topLevel)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) => (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt));
 }
 async function workspaces(paseo: PaseoApi) {
   let cursor: string | undefined;
@@ -52,12 +52,14 @@ export function useData(hostId: string) {
     const refresh = () => {
       void qc.invalidateQueries({ queryKey: ["dialogs", hostId] });
     };
-    void Promise.all([
+    void Promise.allSettled([
       paseo.agents.list({ filter: { includeArchived: true }, subscribe: {} }),
       paseo.workspaces.list({ subscribe: {} }),
     ])
       .then((results) => {
-        for (const r of results) {
+        for (const result of results) {
+          if (result.status !== "fulfilled") continue;
+          const r = result.value;
           if (!alive) {
             r.subscription.release();
             continue;

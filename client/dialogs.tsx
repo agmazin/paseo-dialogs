@@ -4,8 +4,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentType,
 } from "react";
-import { ScrollView, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import {
   useAgent,
   usePaseo,
@@ -19,7 +20,7 @@ import type { PaseoAgent } from "@getpaseo/client";
 import { claimAction, preference, ROOT } from "../shared/contracts";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
-import { hasBrowser } from "./web";
+import { hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab } from "./web";
 import {
   AgentLine,
   ArchiveLine,
@@ -30,6 +31,7 @@ import {
   MoreLine,
   WorkspaceForm,
   type Theme,
+  type MenuAnchor,
   type Status,
 } from "./ui";
 function Activity({
@@ -60,13 +62,12 @@ function AgentRow({
   selected?: boolean;
   time?: string;
 }) {
-  const liveTime = useAgent(agent.id, (a) => a.lastActivityAt);
   return (
     <AgentLine
       theme={theme}
       title={agent.title || "Новый диалог"}
       time={activityTime(
-        liveTime ?? time ?? agent.lastUserMessageAt ?? agent.createdAt,
+        time ?? agent.lastUserMessageAt ?? agent.createdAt,
       )}
       provider={agent.provider}
       status={bucket(agent, unread)}
@@ -133,16 +134,27 @@ function PlusMenu(p: PluginPopoverProps & { workspaceId: string }) {
   );
 }
 export function Dialogs(p: PluginSidebarItemProps) {
+  const dimensions = useWindowDimensions();
+  const [popup, setPopup] = useState<{ Content: ComponentType<PluginPopoverProps>; anchor: MenuAnchor; width: number } | null>(null);
+  const [popupHeight, setPopupHeight] = useState(220);
+  const show = (Content: ComponentType<PluginPopoverProps>, anchor: MenuAnchor | undefined, width: number) => {
+    if (p.layout.compact || !anchor) { p.openPopover(Content); return; }
+    setPopup({ Content, anchor, width });
+  };
+  const closePopup = () => setPopup(null);
   const d = useData(p.host.id),
     qc = useQueryClient(),
     save = useRpc(preference);
   const [limits, setLimits] = useState<Record<string, number>>({}),
     [selected, setSelected] = useState<string | null>(null),
     [activity, setActivity] = useState<Record<string, string>>({});
+  useEffect(() => observeSelectedTab(setSelected), []);
   const onActivity = useCallback(
-    (id: string, time: string) =>
-      setActivity((old) => (old[id] === time ? old : { ...old, [id]: time })),
-    [],
+    (id: string, time: string) => {
+      setActivity((old) => (old[id] === time ? old : { ...old, [id]: time }));
+      qc.setQueryData<Record<string, string>>(["dialogs-activity", p.host.id], old => ({ ...old, [id]: time }));
+    },
+    [qc, p.host.id],
   );
   const pref = useMutation({
     mutationFn: save,
@@ -170,7 +182,17 @@ export function Dialogs(p: PluginSidebarItemProps) {
       Object.hasOwn(state.unread, a.id) ? !!state.unread[a.id] : undefined,
     );
   return (
-    <Block theme={p.theme} onAdd={() => p.openPopover(CreateWorkspace)}>
+    <>
+    {popup && <Modal transparent visible animationType="none" onRequestClose={closePopup}>
+      <Pressable accessibilityLabel="Закрыть меню" onPress={closePopup} style={{ position: "absolute", inset: 0 }} />
+      <View onLayout={e => setPopupHeight(e.nativeEvent.layout.height)} style={{ position: "absolute",
+        left: Math.max(8, Math.min(popup.anchor.x - 4, dimensions.width - popup.width - 8)),
+        top: popup.anchor.y + 30 + popupHeight > dimensions.height - 8 ? Math.max(8, popup.anchor.y - popupHeight - 6) : popup.anchor.y + 30,
+      }}>
+        <popup.Content {...p} close={closePopup} openScreen={input => { closePopup(); p.openScreen(input); }} />
+      </View>
+    </Modal>}
+    <Block theme={p.theme} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
       {all.map((a) => (
         <Activity key={a.id} id={a.id} onActivity={onActivity} />
       ))}
@@ -222,11 +244,9 @@ export function Dialogs(p: PluginSidebarItemProps) {
               onPress={() =>
                 pref.mutate({ section: "collapsed", id: w.id, value: !folded })
               }
-              onAdd={() =>
-                p.openPopover((props) => (
+              onAdd={(anchor) => show((props) => (
                   <PlusMenu {...props} workspaceId={w.id} />
-                ))
-              }
+                ), anchor, 250)}
             />
             {!folded && (
               <>
@@ -237,12 +257,13 @@ export function Dialogs(p: PluginSidebarItemProps) {
                     theme={p.theme}
                     title={t.name}
                     provider="terminal"
+                    selected={selected === t.id}
                     time=""
                     onPress={() => {
                       setSelected(null);
                       p.openScreen({
                         screenId: "navigate",
-                        params: { workspaceId: w.id },
+                        params: { workspaceId: w.id, terminalId: t.id },
                       });
                     }}
                   />
@@ -295,6 +316,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
         );
       })}
     </Block>
+    </>
   );
 }
 export function Destination({
@@ -310,8 +332,11 @@ export function Destination({
   useLayoutEffect(() => {
     const key = JSON.stringify(params);
     if (started.current === key) return;
-    started.current = key;
     void (async () => {
+      // The router commits its address after mounting a cached plugin screen.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!isNavigationScreenActive(params) || started.current === key) return;
+      started.current = key;
       if (!navigation) throw new Error("Навигация недоступна на этом клиенте");
       if (params.agentId) {
         navigation.openAgent({ agentId: params.agentId });
@@ -358,13 +383,14 @@ export function Destination({
         navigation.openAgent({ agentId: agent.id });
         return;
       }
+      let terminalId = params.terminalId;
       if (params.action === "terminal") {
         const profiles =
           (await paseo.config.get()).config.terminalProfiles ?? [];
         const profile = profiles.find((p) => p.id === params.profileId);
         if (params.profileId && !profile)
           throw new Error("Профиль терминала удалён");
-        await paseo.workspaces
+        const terminal = await paseo.workspaces
           .ref(id)
           .terminals.create(
             profile
@@ -375,6 +401,7 @@ export function Destination({
                 }
               : {},
           );
+        terminalId = terminal.id;
       }
       if (params.action === "browser") {
         if (!navigation.openBrowser)
@@ -386,6 +413,7 @@ export function Destination({
         return;
       }
       navigation.openWorkspace({ workspaceId: id });
+      if (terminalId) await activateTerminalTab(terminalId);
     })().catch((e) =>
       setError(
         e instanceof Error ? e.message : "Не удалось выполнить действие",
@@ -405,14 +433,18 @@ export function Archive({
   host,
 }: PluginScreenProps) {
   const d = useData(host.id);
+  const times = useQuery<Record<string, string>>({
+    queryKey: ["dialogs-activity", host.id], queryFn: async () => ({}),
+    initialData: {}, staleTime: Infinity,
+  }).data;
   const [query, setQuery] = useState("");
   const list =
-    d.data?.agents.filter(
+    (d.data?.agents.filter(
       (a) =>
         a.workspaceId === params.workspaceId &&
         a.archivedAt &&
         (a.title ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-    ) ?? [];
+    ) ?? []).sort((a, b) => (times[b.id] ?? b.lastUserMessageAt ?? b.createdAt).localeCompare(times[a.id] ?? a.lastUserMessageAt ?? a.createdAt));
   return (
     <View
       style={{
@@ -442,6 +474,7 @@ export function Archive({
           <AgentRow
             key={a.id}
             agent={a}
+            time={times[a.id]}
             theme={theme}
             onPress={() => navigation?.openAgent({ agentId: a.id })}
           />

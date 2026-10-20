@@ -66,8 +66,28 @@ export function register(server: PluginServerContext) {
     await save();
     return { claimed: true };
   });
-  server.handle(readState, async () => {
+  let restored: Promise<void> | undefined;
+  server.handle(readState, async (_, { paseo }) => {
     await ready;
+    restored ??= (async () => {
+      for (const [agentId, token] of Object.entries(state.unread)) {
+        if (!token) continue;
+        try {
+          const handle = paseo.agents.ref(agentId);
+          const history = await handle.timeline.refetch({ direction: "before", limit: 100 });
+          const exists = history.entries.some(e => e.item.type === "plugin" && e.item.id === `read-${token}`);
+          if (!exists && state.unread[agentId] === token) await handle.timeline.append({
+            type: "plugin", id: `read-${token}`, kind: "read-marker", version: 1,
+            data: { agentId, token },
+          });
+        } catch {
+          delete state.unread[agentId];
+          console.error("Диалоги: восстановление маркера недоступно, используется родной статус");
+        }
+      }
+      await save();
+    })();
+    await restored;
     return state;
   });
   server.handle(preference, async ({ section, id, value }) => {
@@ -187,8 +207,7 @@ export function register(server: PluginServerContext) {
               ],
             }),
           },
-        );
-        clearTimeout(timeout);
+        ).finally(() => clearTimeout(timeout));
         if (!response.ok) throw new Error("network");
         const data = (await response.json()) as {
           choices?: { message?: { content?: string } }[];

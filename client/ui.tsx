@@ -8,11 +8,14 @@ import {
   TextInput,
   View,
   type ViewStyle,
+  type GestureResponderEvent,
 } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
-import { providerSvg } from "./web";
+import { providerSvg, menuAnchor } from "./web";
 import { providerIcons } from "./icons";
+export type MenuAnchor = { x: number; y: number };
+function anchor(e: GestureResponderEvent): MenuAnchor | undefined { return menuAnchor(e); }
 export type Theme = PluginSidebarItemProps["theme"];
 export type Status =
   | "needs_input"
@@ -278,8 +281,8 @@ export function Row({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected }}
-      onHoverIn={() => setHover(true)}
-      onHoverOut={() => setHover(false)}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       onPress={onPress}
       style={{
         height,
@@ -370,7 +373,7 @@ export function GroupLine({
   collapsed: boolean;
   counts?: Partial<Record<Status, number>>;
   onPress: () => void;
-  onAdd: () => void;
+  onAdd: (anchor?: MenuAnchor) => void;
   compact?: boolean;
 }) {
   const p = palette(theme);
@@ -410,17 +413,18 @@ export function GroupLine({
               {count}
             </Label>
           </View>
-          {(hover || compact) && (
+          {(
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Добавить в ${name}`}
               onPress={(e) => {
                 e.stopPropagation();
-                onAdd();
+                onAdd(anchor(e));
               }}
               style={{
                 width: 24,
                 height: 24,
+                display: hover || compact ? "flex" : "none",
                 marginLeft: -4,
                 marginRight: -6,
                 borderRadius: 6,
@@ -494,7 +498,7 @@ export function Block({
 }: {
   theme: Theme;
   children: ReactNode;
-  onAdd: () => void;
+  onAdd: (anchor?: MenuAnchor) => void;
 }) {
   const p = palette(theme);
   return (
@@ -528,7 +532,7 @@ export function Block({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Новое пространство"
-          onPress={onAdd}
+          onPress={(e) => onAdd(anchor(e))}
           style={{
             width: 24,
             height: 24,
@@ -565,8 +569,8 @@ export function MenuLine({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onHoverIn={() => setHover(true)}
-      onHoverOut={() => setHover(false)}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       onPress={onPress}
       style={{
         height: 34,
