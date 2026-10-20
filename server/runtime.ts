@@ -7,12 +7,15 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import {
   readState,
+  reorderGroups,
   preference,
   markRead,
   stateSchema,
   claimAction,
 } from "../shared/contracts";
 import { autoTitle, topLevel, validTitle } from "../shared/model";
+import { reconcileOrder, moveGroup } from "../shared/order";
+import type { PaseoApi } from "@getpaseo/client";
 const directory = join(
   process.env.PASEO_HOME || join(homedir(), ".paseo"),
   "plugin-data",
@@ -20,6 +23,7 @@ const directory = join(
 );
 const path = join(directory, "state.json");
 type State = {
+  groupOrder: string[];
   collapsed: Record<string, boolean>;
   archives: Record<string, boolean>;
   unread: Record<string, string>;
@@ -28,6 +32,7 @@ type State = {
 };
 export function register(server: PluginServerContext) {
   let state: State = {
+    groupOrder: [],
     collapsed: {},
     archives: {},
     unread: {},
@@ -59,6 +64,45 @@ export function register(server: PluginServerContext) {
       });
     return queue;
   };
+  // Serialize snapshots with lifecycle events, so an old list cannot undo an archive.
+  let orderQueue = Promise.resolve();
+  const orderTask = <T,>(fn: () => Promise<T>): Promise<T> => {
+    const result = orderQueue.then(fn);
+    orderQueue = result.then(() => {}, () => {});
+    return result;
+  };
+  const reconcile = async (paseo: PaseoApi) => {
+    const active: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await paseo.workspaces.list({ page: { limit: 200, cursor } });
+      active.push(...result.entries.filter(w => !w.background && !w.archivingAt).map(w => w.id));
+      cursor = result.pageInfo.nextCursor ?? undefined;
+    } while (cursor);
+    const next = reconcileOrder(state.groupOrder, active);
+    if (JSON.stringify(next) !== JSON.stringify(state.groupOrder)) {
+      const previous = state.groupOrder;
+      state.groupOrder = next;
+      try { await save(); } catch (error) { state.groupOrder = previous; throw error; }
+    }
+  };
+  server.handle(reorderGroups, async ({ id, beforeId }, { paseo }) => orderTask(async () => {
+    await ready;
+    await reconcile(paseo);
+    const previous = state.groupOrder;
+    state.groupOrder = moveGroup(previous, id, beforeId);
+    try { await save(); } catch (error) { state.groupOrder = previous; throw error; }
+    return state;
+  }));
+  const offWorkspaceCreated = server.on("workspace.created", async (_, { paseo }) => orderTask(async () => {
+    await ready;
+    await reconcile(paseo);
+  }));
+  const offWorkspaceArchived = server.on("workspace.archived", async ({ workspace }) => orderTask(async () => {
+    await ready;
+    state.groupOrder = state.groupOrder.filter(id => id !== workspace.id);
+    await save();
+  }));
   server.handle(claimAction, async ({ token }) => {
     await ready;
     if (state.actions[token]) return { claimed: false };
@@ -69,6 +113,7 @@ export function register(server: PluginServerContext) {
   let restored: Promise<void> | undefined;
   server.handle(readState, async (_, { paseo }) => {
     await ready;
+    await orderTask(() => reconcile(paseo));
     restored ??= (async () => {
       for (const [agentId, token] of Object.entries(state.unread)) {
         if (!token) continue;
@@ -245,6 +290,9 @@ export function register(server: PluginServerContext) {
   );
   console.log("Диалоги: сервер запущен");
   return async () => {
+    offWorkspaceCreated();
+    offWorkspaceArchived();
+    await orderQueue;
     offCreated();
     offEnded();
     await queue;

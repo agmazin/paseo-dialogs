@@ -19,7 +19,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoAgent } from "@getpaseo/client";
 import { displaySettings } from "../shared/settings";
-import { claimAction, preference, ROOT } from "../shared/contracts";
+import { claimAction, preference, reorderGroups, ROOT } from "../shared/contracts";
+import { reconcileOrder, moveGroup } from "../shared/order";
+import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab } from "./web";
@@ -149,7 +151,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const closePopup = () => setPopup(null);
   const d = useData(p.host.id),
     qc = useQueryClient(),
-    save = useRpc(preference);
+    save = useRpc(preference),
+    reorder = useRpc(reorderGroups);
   const [limits, setLimits] = useState<Record<string, number>>({}),
     [selected, setSelected] = useState<string | null>(null),
     [activity, setActivity] = useState<Record<string, string>>({});
@@ -165,6 +168,16 @@ export function Dialogs(p: PluginSidebarItemProps) {
     mutationFn: save,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
+  const orderMutation = useMutation({
+    mutationFn: reorder,
+    onMutate: async (move) => {
+      await qc.cancelQueries({ queryKey: ["dialogs", p.host.id] });
+      qc.setQueryData<typeof d.data>(["dialogs", p.host.id], old => old ? {
+        ...old, state: { ...old.state, groupOrder: moveGroup(old.state.groupOrder, move.id, move.beforeId) },
+      } : old);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
+  });
   const openAgent = (id: string) => {
     setSelected(id);
     p.openScreen({ screenId: "navigate", params: { agentId: id } });
@@ -176,6 +189,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
       </Label>
     );
   const { agents: raw, workspaces, terminals, state } = d.data;
+  const groupOrder = reconcileOrder(state.groupOrder, workspaces.map(w => w.id));
+  const workspaceById = new Map(workspaces.map(w => [w.id, w]));
   const all = [...raw].sort((a, b) =>
     (activity[b.id] ?? b.lastUserMessageAt ?? b.createdAt).localeCompare(
       activity[a.id] ?? a.lastUserMessageAt ?? a.createdAt,
@@ -206,7 +221,11 @@ export function Dialogs(p: PluginSidebarItemProps) {
           Не удалось сохранить настройку
         </Label>
       )}
-      {workspaces.map((w) => {
+      {orderMutation.isError && <Label color={p.theme.colors.statusDanger} size={12}>Не удалось сохранить порядок. Попробуйте ещё раз.</Label>}
+      <SortableGroups order={groupOrder}
+        disabled={orderMutation.isPending || p.layout.compact}
+        onMove={(id, beforeId) => orderMutation.mutate({ id, beforeId })}>
+      {groupOrder.map(id => workspaceById.get(id)!).map((w) => {
         const active = all.filter(
             (a) => a.workspaceId === w.id && !a.archivedAt,
           ),
@@ -238,7 +257,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
           />
         );
         return (
-          <View key={w.id}>
+          <View key={w.id} testID={`dialogs-group-${w.id}`}>
             <GroupLine
               theme={p.theme}
               name={w.name}
@@ -320,6 +339,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
           </View>
         );
       })}
+      </SortableGroups>
     </Block>
     </>
   );

@@ -5,6 +5,7 @@ export const markerSchema = z.object({
   token: z.string(),
 });
 export const stateSchema = z.object({
+  groupOrder: z.array(z.string()).default([]),
   collapsed: z.record(z.string(), z.boolean()),
   archives: z.record(z.string(), z.boolean()),
   unread: z.record(z.string(), z.string()),
@@ -33,4 +34,10 @@ export const claimAction = defineRpc({
   name: "dialogs.claim-action",
   input: z.object({ token: z.string().min(1) }),
   output: z.object({ claimed: z.boolean() }),
+});
+
+export const reorderGroups = defineRpc({
+  name: "dialogs.reorder-groups",
+  input: z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
+  output: stateSchema,
 });

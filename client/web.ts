@@ -178,3 +178,125 @@ export function hideNativeWorkspaces(enabled: boolean) {
     for (const node of hidden.keys()) restore(node);
   };
 }
+
+// Paseo 0.12's web DraggableList uses dnd-kit, which is not a plugin runtime
+// module. Match its mouse sensor (6px), closest-center vertical sorting, 1.02
+// scale, .9 opacity and 200ms ease transition on our own subtree only.
+interface DragElement {
+  parentElement: DragElement | null;
+  style: { transform: string; transition: string; opacity: string; zIndex: string };
+  getAttribute(name: string): string | null;
+  getBoundingClientRect(): { top: number; height: number };
+  closest(selector: string): DragElement | null;
+  querySelectorAll(selector: string): Iterable<DragElement>;
+  contains(node: DragElement): boolean;
+  addEventListener(name: string, handler: (event: DragEvent) => void, capture?: boolean): void;
+  removeEventListener(name: string, handler: (event: DragEvent) => void, capture?: boolean): void;
+}
+interface DragEvent {
+  target: DragElement;
+  button: number;
+  pointerId: number;
+  pointerType: string;
+  clientX: number;
+  clientY: number;
+  key: string;
+  preventDefault(): void;
+  stopPropagation(): void;
+  stopImmediatePropagation(): void;
+}
+export function bindGroupDrag(node: unknown, onMove: (id: string, beforeId: string | null) => void) {
+  if (Platform.OS !== "web" || !node) return () => {};
+  const root = node as DragElement;
+  const doc = document as unknown as DragElement;
+  const win = window as unknown as DragElement;
+  let drag: { elements: DragElement[]; rects: { top: number; height: number }[];
+    styles: DragElement["style"][]; from: number; to: number; x: number; y: number;
+    pointerId: number; active: boolean } | undefined;
+  let swallowClick = false;
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
+  const stopClick = (e: DragEvent) => {
+    if (swallowClick) { e.preventDefault(); e.stopImmediatePropagation(); }
+  };
+  const clearClick = () => {
+    swallowClick = false;
+    doc.removeEventListener("click", stopClick, true);
+  };
+  const finish = (commit: boolean) => {
+    const current = drag;
+    if (!current) return;
+    drag = undefined;
+    current.elements.forEach((el, i) => Object.assign(el.style, current.styles[i]));
+    if (current.active) {
+      // Leave capture installed through the pointerup-generated click.
+      clickTimer = setTimeout(clearClick, 0);
+      if (commit && current.from !== current.to) {
+        const ids = current.elements.map(el => el.getAttribute("data-testid")!.slice("dialogs-group-".length));
+        const id = ids.splice(current.from, 1)[0];
+        onMove(id, ids[current.to] ?? null);
+      }
+    }
+  };
+  const down = (e: DragEvent) => {
+    if (e.button !== 0 || e.pointerType !== "mouse" || drag) return;
+    const handle = e.target.closest('[data-testid="dialogs-group-handle"]');
+    if (!handle || !root.contains(handle) || e.target.closest('[data-testid="dialogs-no-drag"]')) return;
+    const group = handle.parentElement;
+    const elements = [...root.querySelectorAll('[data-testid^="dialogs-group-"]')]
+      .filter(el => el.getAttribute("data-testid") !== "dialogs-group-handle");
+    const from = elements.indexOf(group!);
+    if (from < 0 || elements.length < 2) return;
+    clearTimeout(clickTimer);
+    clearClick();
+    drag = { elements, from, to: from, x: e.clientX, y: e.clientY, pointerId: e.pointerId, active: false,
+      rects: elements.map(el => el.getBoundingClientRect()),
+      styles: elements.map(el => ({ transform: el.style.transform, transition: el.style.transition,
+        opacity: el.style.opacity, zIndex: el.style.zIndex })) };
+  };
+  const move = (e: DragEvent) => {
+    const d = drag;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const delta = e.clientY - d.y;
+    if (!d.active && Math.hypot(e.clientX - d.x, delta) <= 6) return;
+    d.active = true;
+    swallowClick = true;
+    doc.addEventListener("click", stopClick, true);
+    e.preventDefault();
+    const active = d.rects[d.from];
+    const center = active.top + active.height / 2 + delta;
+    d.to = d.rects.reduce((best, r, i) => Math.abs(r.top + r.height / 2 - center) <
+      Math.abs(d.rects[best].top + d.rects[best].height / 2 - center) ? i : best, 0);
+    d.elements.forEach((el, i) => {
+      let offset = 0;
+      if (i === d.from) offset = delta;
+      else if (d.from < d.to && i > d.from && i <= d.to) offset = -active.height;
+      else if (d.from > d.to && i >= d.to && i < d.from) offset = active.height;
+      el.style.transform = `translate3d(0px, ${offset}px, 0px)${i === d.from ? " scale(1.02)" : ""}`;
+      el.style.transition = i === d.from ? "none" : "transform 200ms ease";
+      el.style.opacity = i === d.from ? "0.9" : "1";
+      el.style.zIndex = i === d.from ? "1000" : "1";
+    });
+  };
+  const up = (e: DragEvent) => { if (drag?.pointerId === e.pointerId) finish(true); };
+  const cancel = () => finish(false);
+  const key = (e: DragEvent) => { if (e.key === "Escape" && drag) { e.preventDefault(); e.stopPropagation(); cancel(); } };
+  const selection = (e: DragEvent) => { if (drag?.active) e.preventDefault(); };
+  root.addEventListener("pointerdown", down);
+  doc.addEventListener("pointermove", move);
+  doc.addEventListener("pointerup", up);
+  doc.addEventListener("pointercancel", cancel);
+  doc.addEventListener("keydown", key, true);
+  doc.addEventListener("selectstart", selection);
+  win.addEventListener("blur", cancel);
+  return () => {
+    cancel();
+    root.removeEventListener("pointerdown", down);
+    doc.removeEventListener("pointermove", move);
+    doc.removeEventListener("pointerup", up);
+    doc.removeEventListener("pointercancel", cancel);
+    doc.removeEventListener("keydown", key, true);
+    doc.removeEventListener("selectstart", selection);
+    win.removeEventListener("blur", cancel);
+    if (!swallowClick) clearClick();
+  };
+}

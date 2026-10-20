@@ -378,7 +378,7 @@ export function GroupLine({
 }) {
   const p = palette(theme);
   return (
-    <Row theme={theme} label={`Группа ${name}`} onPress={onPress}>
+    <Row testID="dialogs-group-handle" theme={theme} label={`Группа ${name}`} onPress={onPress}>
       {(_cut, hover) => (
         <>
           <Icon
@@ -389,7 +389,7 @@ export function GroupLine({
           <Label weight="500" color={p.fg} style={{ flex: 1 }}>
             {name}
           </Label>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View testID="dialogs-no-drag" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             {collapsed &&
               (["needs_input", "running", "attention", "failed"] as const).map(
                 (s) =>
@@ -416,6 +416,7 @@ export function GroupLine({
           {(
             <Pressable
               accessibilityRole="button"
+              testID="dialogs-no-drag"
               accessibilityLabel={`Добавить в ${name}`}
               onPress={(e) => {
                 e.stopPropagation();
