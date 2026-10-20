@@ -9,7 +9,7 @@ const compiled = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKi
 const browser = await chromium.launch({headless:true,channel:'chrome'});
 try {
   const page = await browser.newPage();
-  await page.setContent('<aside><div data-testid="dialogs-block">Диалоги</div><section id="native"><header>Workspaces<button data-testid="sidebar-display-preferences-menu">Настройки</button></header><div data-testid="sidebar-project-list">Проекты</div></section><footer data-testid="sidebar-footer">Подвал</footer></aside>');
+  await page.setContent('<aside><div data-testid="dialogs-block">Диалоги</div><section id="native"><header>Workspaces<button data-testid="sidebar-display-preferences-menu">Настройки</button></header><div data-testid="sidebar-project-workspace-list-scroll">Проекты</div></section><footer data-testid="sidebar-footer">Подвал</footer></aside>');
   await page.evaluate(code => {
     const exports = {};
     new Function('exports','require',code)(exports, name => name==='react-native' ? {Platform:{OS:'web'}} : {});
@@ -21,9 +21,9 @@ try {
   assert.equal(await page.getByTestId('sidebar-footer').isVisible(), true);
   await page.locator('#native').evaluate(e=>e.style.display='flex');
   await page.waitForFunction(()=>document.querySelector('#native').style.display==='none');
-  await page.getByTestId('sidebar-project-list').evaluate(e=>e.removeAttribute('data-testid'));
+  await page.getByTestId('sidebar-project-workspace-list-scroll').evaluate(e=>e.removeAttribute('data-testid'));
   await page.waitForFunction(()=>document.querySelector('#native').style.display!=='none');
-  await page.locator('#native > div').evaluate(e=>e.setAttribute('data-testid','sidebar-project-list'));
+  await page.locator('#native > div').evaluate(e=>e.setAttribute('data-testid','sidebar-project-workspace-list-scroll'));
   await page.waitForFunction(()=>document.querySelector('#native').style.display==='none');
   await page.locator('#native').evaluate(e=>e.outerHTML=e.outerHTML.replace('display: none !important;',''));
   await page.waitForFunction(()=>document.querySelector('#native').style.display==='none');
@@ -31,6 +31,21 @@ try {
   assert.equal(await page.locator('#native').isVisible(), true);
   await page.evaluate(()=>{window.cleanup=window.hide(false)});
   assert.equal(await page.locator('#native').isVisible(), true);
+  // A changed host layout must never hide our block or the footer.
+  for (const marker of ['dialogs-block', 'sidebar-footer']) {
+    await page.evaluate(marker => {
+      window.cleanup();
+      const sentinel = document.createElement('div');
+      sentinel.dataset.testid = marker;
+      sentinel.id = 'unsafe-child';
+      document.querySelector('#native').append(sentinel);
+      window.cleanup = window.hide(true);
+    }, marker);
+    assert.equal(await page.locator('#native').isVisible(), true);
+    await page.locator('#unsafe-child').evaluate(e=>e.remove());
+    await page.waitForFunction(()=>document.querySelector('#native').style.display==='none');
+    await page.evaluate(()=>window.cleanup());
+  }
   // Missing either marker must leave the tree visible.
   await page.getByTestId('sidebar-display-preferences-menu').evaluate(e=>e.remove());
   await page.evaluate(()=>{window.cleanup();window.cleanup=window.hide(true)});

@@ -149,7 +149,7 @@ export function hideNativeWorkspaces(enabled: boolean) {
   };
   const reconcile = () => {
     const targets = new Set<SidebarElement>();
-    for (const list of doc.querySelectorAll('[data-testid="sidebar-project-list"], #sidebar-project-list')) {
+    for (const list of doc.querySelectorAll('[data-testid="sidebar-project-workspace-list-scroll"]')) {
       let section: SidebarElement | null = list;
       for (let depth = 0; section && depth < 5; depth++, section = section.parentElement) {
         if (section.querySelector('[data-testid="dialogs-block"], [data-testid="sidebar-footer"], [data-testid^="plugin-sidebar-"]')) break;
