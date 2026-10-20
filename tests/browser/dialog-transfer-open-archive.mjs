@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+const id="c50e4621-ab33-404a-ae63-ad1266e32433";
+const c=new DaemonClient({url:"ws://127.0.0.1:6782/ws",clientId:"agm31-open-archive",clientType:"cli"});
+const b=await chromium.launch({headless:true,channel:"chrome"});
+try{
+  await c.connect();
+  assert.notEqual((await c.fetchAgent(id)).agent.status,"running");
+  await c.archiveAgent(id);
+  const {agent:a}=await c.fetchAgent(id);assert.ok(a.archivedAt);
+  const destination=a.workspaceId==="wks_32452d156e2be400"?"wks_23eb8948b1bdb7cd":"wks_32452d156e2be400";
+  await c.invokePluginRpc("paseo-dialogs","dialogs.preference",{section:"archives",id:a.workspaceId,value:true});
+  const p=await b.newPage({viewport:{width:1400,height:1100}});
+  await p.goto("http://127.0.0.1:6782");
+  await p.getByText("История",{exact:true}).first().click();
+  await p.getByText("AGM31-Claude2",{exact:true}).last().click();
+  await p.getByText("Запомнил.",{exact:true}).filter({visible:true}).first().waitFor();
+  assert.ok((await p.locator("body").innerText()).includes("ЛИМОН"));
+  await p.screenshot({path:"artifacts/0.5/10-memory-claude.png"});
+  const row=p.getByTestId(`dialogs-agent-${id}`);
+  const target=p.getByTestId(`dialogs-group-${destination}`);
+  const from=await row.boundingBox(),to=await target.boundingBox();
+  await p.mouse.move(from.x+100,from.y+12);await p.mouse.down();
+  await p.mouse.move(from.x+100,to.y+12,{steps:15});await p.mouse.up();
+  await p.waitForFunction(wid=>location.href.includes(wid),destination);
+  await p.getByText("Запомнил.",{exact:true}).filter({visible:true}).first().waitFor();
+  const {agent:moved}=await c.fetchAgent(id);
+  assert.equal(moved.workspaceId,destination);assert.equal(moved.archivedAt,null);
+  await p.screenshot({path:"artifacts/0.5/11-open-archive.png"});
+  console.log("PASS: archived conversation opened through native History follows transfer and becomes active");
+}finally{await b.close();await c.close();}

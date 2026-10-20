@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+import { execFileSync } from "node:child_process";
+const b = await chromium.launch({ headless: true, channel: "chrome" });
+try {
+  const p = await b.newPage({viewport:{width:1400,height:950},colorScheme:"dark"});
+  const errors = []; p.on("pageerror",e=>errors.push(e.message));
+  await p.goto("http://127.0.0.1:6782");
+  const groups=p.locator('[data-testid="dialogs-groups"] > [data-testid^="dialogs-group-"]');
+  await groups.first().waitFor();
+  const order=()=>groups.evaluateAll(es=>es.map(e=>e.dataset.testid));
+  const before=await order();
+  assert.equal(before.length,2);
+  const first=groups.first(),handle=first.getByTestId("dialogs-group-handle");
+  const a=await handle.boundingBox(),z=await groups.last().boundingBox();
+  await p.mouse.move(a.x+85,a.y+15);await p.mouse.down();
+  await p.mouse.move(a.x+85,z.y+z.height-2,{steps:18});
+  assert.match(await first.evaluate(e=>e.style.transform),/scale\(1.02\)/);
+  await p.mouse.up();
+  await p.waitForFunction(expected=>JSON.stringify([...document.querySelectorAll('[data-testid="dialogs-groups"] > [data-testid^="dialogs-group-"]')].map(e=>e.dataset.testid))===JSON.stringify(expected), [...before].reverse());
+  await p.reload();await groups.first().waitFor();
+  assert.deepEqual(await order(),[...before].reverse());
+  execFileSync("paseo",["plugin","reload","paseo-dialogs","--host","127.0.0.1:6782"]);
+  await p.reload();await groups.first().waitFor();
+  assert.deepEqual(await order(),[...before].reverse());
+  const source=p.getByTestId("dialogs-group-wks_32452d156e2be400");
+  const sourceHandle=source.getByTestId("dialogs-group-handle");
+  const codex=source.getByText("AGM31-Codex2",{exact:true});
+  await codex.waitFor();await sourceHandle.click();await codex.waitFor({state:"hidden"});
+  await sourceHandle.click();await codex.waitFor();
+  const plus=source.getByRole("button",{name:"Добавить в AGM31-source2",exact:true});
+  await sourceHandle.hover();await plus.click();
+  await p.getByTestId("dialogs-menu").waitFor();
+  assert.ok(await p.getByText("Агент",{exact:true}).isVisible());
+  assert.ok(await p.getByText("Терминал",{exact:true}).isVisible());
+  await p.getByLabel("Закрыть меню",{exact:true}).last().click();
+  // Dark drag screenshot on the same two fixtures; Escape leaves persistence alone.
+  const row=source.getByTestId("dialogs-agent-be7712a6-11b9-4a56-b916-97b7ddbfe030");
+  const r=await row.boundingBox(),t=await p.getByTestId("dialogs-group-wks_23eb8948b1bdb7cd").boundingBox();
+  await p.mouse.move(r.x+100,r.y+12);await p.mouse.down();await p.mouse.move(r.x+100,t.y+12,{steps:15});
+  await p.screenshot({path:"artifacts/0.5/08-dark-during.png"});
+  await p.keyboard.press("Escape");await p.mouse.up();
+  assert.deepEqual(errors,[]);
+  console.log("PASS: 0.4 group ordering, page/plugin persistence, collapse, + menu, dark dialog drag/Escape, no page errors");
+}finally{await b.close();}

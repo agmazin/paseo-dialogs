@@ -184,14 +184,94 @@ export function hideNativeWorkspaces(enabled: boolean) {
 // scale, .9 opacity and 200ms ease transition on our own subtree only.
 interface DragElement {
   parentElement: DragElement | null;
-  style: { transform: string; transition: string; opacity: string; zIndex: string };
+  style: { transform: string; transition: string; opacity: string; zIndex: string; outline?: string; backgroundColor?: string };
   getAttribute(name: string): string | null;
-  getBoundingClientRect(): { top: number; height: number };
+  getBoundingClientRect(): { top: number; height: number; left: number; width: number };
   closest(selector: string): DragElement | null;
   querySelectorAll(selector: string): Iterable<DragElement>;
   contains(node: DragElement): boolean;
   addEventListener(name: string, handler: (event: DragEvent) => void, capture?: boolean): void;
   removeEventListener(name: string, handler: (event: DragEvent) => void, capture?: boolean): void;
+}
+
+export function hasOpenAgentTab(id: string) {
+  if (Platform.OS !== "web") return false;
+  const doc = document as unknown as DragElement;
+  return [...doc.querySelectorAll('[data-testid^="workspace-tab-agent_"]')]
+    .some(el => el.getAttribute("data-testid") === `workspace-tab-agent_${id}`);
+}
+
+export function bindDialogDrag(node: unknown, color: string, background: string,
+  onDrop: (agentId: string, targetId: string) => void,
+  canMove: (agentId: string) => boolean) {
+  if (Platform.OS !== "web" || !node) return () => {};
+  const root = node as DragElement, doc = document as unknown as DragElement, win = window as unknown as DragElement;
+  let drag: { row: DragElement; group: DragElement; groupZ: string; id: string; source: string; x: number; y: number; pointer: number;
+    active: boolean; target?: string; style: DragElement["style"]; highlights: [DragElement, string | undefined][] } | undefined;
+  let swallow = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stopClick = (e: DragEvent) => { if (swallow) { e.preventDefault(); e.stopImmediatePropagation(); } };
+  const clearClick = () => { swallow = false; doc.removeEventListener("click", stopClick, true); };
+  const finish = (commit: boolean) => {
+    const d = drag; if (!d) return;
+    drag = undefined;
+    Object.assign(d.row.style, d.style);
+    d.group.style.zIndex = d.groupZ;
+    d.highlights.forEach(([el, outline]) => { el.style.outline = outline ?? ""; });
+    if (d.active) timer = setTimeout(clearClick, 0);
+    if (commit && d.target) onDrop(d.id, d.target);
+  };
+  const down = (e: DragEvent) => {
+    if (e.button !== 0 || e.pointerType !== "mouse" || drag) return;
+    const row = e.target.closest('[data-testid^="dialogs-agent-"]');
+    const group = row?.closest('[data-testid^="dialogs-group-wks_"]');
+    if (!row || !group || !root.contains(row)) return;
+    clearTimeout(timer); clearClick();
+    drag = { row, group, groupZ: group.style.zIndex, id: row.getAttribute("data-testid")!.slice(14),
+      source: group.getAttribute("data-testid")!.slice(14),
+      x: e.clientX, y: e.clientY, pointer: e.pointerId, active: false,
+      style: { transform: row.style.transform, opacity: row.style.opacity,
+        transition: row.style.transition, zIndex: row.style.zIndex, backgroundColor: row.style.backgroundColor }, highlights: [] };
+  };
+  const move = (e: DragEvent) => {
+    const d = drag; if (!d || d.pointer !== e.pointerId) return;
+    const delta = e.clientY - d.y;
+    if (!d.active && Math.hypot(e.clientX - d.x, delta) <= 6) return;
+    if (!d.active) {
+      d.active = true; swallow = true; doc.addEventListener("click", stopClick, true);
+      if (!canMove(d.id)) { finish(false); return; }
+    }
+    e.preventDefault();
+    d.group.style.zIndex = "1000";
+    Object.assign(d.row.style, { transform: `translate3d(0px, ${delta}px, 0px) scale(1.02)`,
+      transition: "none", opacity: "0.9", zIndex: "1000", backgroundColor: background });
+    d.highlights.forEach(([el, outline]) => { el.style.outline = outline ?? ""; });
+    d.highlights = []; d.target = undefined;
+    for (const group of root.querySelectorAll('[data-testid^="dialogs-group-wks_"]')) {
+      const id = group.getAttribute("data-testid")!.slice(14), r = group.getBoundingClientRect();
+      if (id !== d.source && e.clientY >= r.top && e.clientY <= r.top + r.height &&
+          e.clientX >= r.left && e.clientX <= r.left + r.width) {
+        d.target = id; d.highlights.push([group, group.style.outline]);
+        group.style.outline = `2px solid ${color}`;
+        break;
+      }
+    }
+  };
+  const up = (e: DragEvent) => { if (drag?.pointer === e.pointerId) finish(true); };
+  const cancel = () => finish(false);
+  const key = (e: DragEvent) => { if (e.key === "Escape" && drag) { e.preventDefault(); e.stopPropagation(); cancel(); } };
+  const selection = (e: DragEvent) => { if (drag?.active) e.preventDefault(); };
+  root.addEventListener("pointerdown", down);
+  doc.addEventListener("pointermove", move); doc.addEventListener("pointerup", up);
+  doc.addEventListener("pointercancel", cancel); doc.addEventListener("keydown", key, true);
+  doc.addEventListener("selectstart", selection); win.addEventListener("blur", cancel);
+  return () => {
+    cancel(); root.removeEventListener("pointerdown", down);
+    doc.removeEventListener("pointermove", move); doc.removeEventListener("pointerup", up);
+    doc.removeEventListener("pointercancel", cancel); doc.removeEventListener("keydown", key, true);
+    doc.removeEventListener("selectstart", selection); win.removeEventListener("blur", cancel);
+    if (!swallow) clearClick();
+  };
 }
 interface DragEvent {
   target: DragElement;

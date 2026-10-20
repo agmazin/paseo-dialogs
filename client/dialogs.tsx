@@ -19,12 +19,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoAgent } from "@getpaseo/client";
 import { displaySettings } from "../shared/settings";
-import { claimAction, preference, reorderGroups, ROOT } from "../shared/contracts";
+import { claimAction, preference, reorderGroups, moveDialog, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab } from "./web";
 import {
   AgentLine,
   ArchiveLine,
@@ -67,6 +67,7 @@ function AgentRow({
   time?: string;
 }) {
   return (
+    <View testID={`dialogs-agent-${agent.id}`}>
     <AgentLine
       theme={theme}
       title={agent.title || "Новый диалог"}
@@ -79,6 +80,7 @@ function AgentRow({
       selected={selected}
       onPress={onPress}
     />
+    </View>
   );
 }
 function CreateWorkspace(p: PluginPopoverProps) {
@@ -152,7 +154,9 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const d = useData(p.host.id),
     qc = useQueryClient(),
     save = useRpc(preference),
-    reorder = useRpc(reorderGroups);
+    reorder = useRpc(reorderGroups),
+    move = useRpc(moveDialog);
+  const [moveError, setMoveError] = useState("");
   const [limits, setLimits] = useState<Record<string, number>>({}),
     [selected, setSelected] = useState<string | null>(null),
     [activity, setActivity] = useState<Record<string, string>>({});
@@ -182,6 +186,22 @@ export function Dialogs(p: PluginSidebarItemProps) {
     setSelected(id);
     p.openScreen({ screenId: "navigate", params: { agentId: id } });
   };
+  const transferMutation = useMutation({
+    mutationFn: async (input: { agentId: string; sourceId: string; targetId: string; open: boolean }) => {
+      setMoveError("");
+      return { ...await move(input), open: input.open };
+    },
+    onSuccess: async (result) => {
+      await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+      if (result.open) p.openScreen({
+        screenId: "navigate", params: { agentId: result.agentId, workspaceId: result.workspaceId },
+      });
+    },
+    onError: (error) => setMoveError(error instanceof Error
+      ? error.message.replace(/^Request failed: /, "").replace(/ requestType=.*$/, "")
+      : "Не удалось перенести диалог"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
+  });
   if (!d.data)
     return (
       <Label color={p.theme.colors.foregroundMuted} size={13}>
@@ -222,8 +242,25 @@ export function Dialogs(p: PluginSidebarItemProps) {
         </Label>
       )}
       {orderMutation.isError && <Label color={p.theme.colors.statusDanger} size={12}>Не удалось сохранить порядок. Попробуйте ещё раз.</Label>}
+      {!!moveError && <Label color={p.theme.colors.statusDanger} size={12}>{moveError}</Label>}
+      {transferMutation.isPending && <Label color={p.theme.colors.foregroundMuted} size={12}>Перенос диалога...</Label>}
       <SortableGroups order={groupOrder}
-        disabled={orderMutation.isPending || p.layout.compact}
+        disabled={orderMutation.isPending || transferMutation.isPending || p.layout.compact}
+        color={p.theme.colors.foregroundMuted}
+        background={p.theme.colors.surface0}
+        canMoveDialog={id => {
+          const a = all.find(a => a.id === id);
+          if (!a) return false;
+          if (a.status === "running" || a.status === "initializing" || a.activeTurn || a.pendingPermissions?.length || a.attentionReason === "permission") {
+            setMoveError("Перенести можно, когда агент закончит"); return false;
+          }
+          setMoveError(""); return true;
+        }}
+        onDialogMove={(agentId, targetId) => {
+          const a = all.find(a => a.id === agentId);
+          if (a?.workspaceId) transferMutation.mutate({ agentId, sourceId: a.workspaceId, targetId,
+            open: selected === agentId || hasOpenAgentTab(agentId) });
+        }}
         onMove={(id, beforeId) => orderMutation.mutate({ id, beforeId })}>
       {groupOrder.map(id => workspaceById.get(id)!).map((w) => {
         const active = all.filter(
@@ -364,6 +401,10 @@ export function Destination({
       started.current = key;
       if (!navigation) throw new Error("Навигация недоступна на этом клиенте");
       if (params.agentId) {
+        if (params.workspaceId) {
+          await paseo.agents.ref(params.agentId).refresh();
+          navigation.openWorkspace({ workspaceId: params.workspaceId });
+        }
         navigation.openAgent({ agentId: params.agentId });
         return;
       }

@@ -41,3 +41,8 @@ export const reorderGroups = defineRpc({
   input: z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
   output: stateSchema,
 });
+export const moveDialog = defineRpc({
+  name: "dialogs.move",
+  input: z.object({ agentId: z.string().min(1), sourceId: z.string().min(1), targetId: z.string().min(1) }),
+  output: z.object({ agentId: z.string(), workspaceId: z.string(), archived: z.boolean() }),
+});

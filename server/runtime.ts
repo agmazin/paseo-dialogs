@@ -1,5 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { readFile, mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -12,7 +12,10 @@ import {
   markRead,
   stateSchema,
   claimAction,
+  moveDialog,
 } from "../shared/contracts";
+import { transfer } from "./transfer";
+import { transferClient } from "./transfer-client";
 import { autoTitle, topLevel, validTitle } from "../shared/model";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import type { PaseoApi } from "@getpaseo/client";
@@ -31,6 +34,8 @@ type State = {
   actions: Record<string, number>;
 };
 export function register(server: PluginServerContext) {
+  const moving = new Set<string>();
+  const transfers = new Set<Promise<unknown>>();
   let state: State = {
     groupOrder: [],
     collapsed: {},
@@ -103,6 +108,53 @@ export function register(server: PluginServerContext) {
     state.groupOrder = state.groupOrder.filter(id => id !== workspace.id);
     await save();
   }));
+  server.handle(moveDialog, async (input, { paseo }) => {
+    await ready;
+    if (moving.has(input.agentId)) throw new Error("Диалог уже переносится");
+    moving.add(input.agentId);
+    const operation = (async () => {
+      const target = await paseo.workspaces.ref(input.targetId).refresh();
+      const source = await paseo.workspaces.ref(input.sourceId).refresh();
+      if (!source || !target || source.archivingAt || source.background ||
+          target.archivingAt || target.background || source.workspaceDirectory !== target.workspaceDirectory)
+        throw new Error("Нужно активное пространство в том же каталоге");
+      const client = await transferClient(process.env.PASEO_HOME || join(homedir(), ".paseo"));
+      const unread = state.unread[input.agentId];
+      const recoveryPath = join(directory, `move-${input.agentId}.json`);
+      try {
+        try {
+          const pending = JSON.parse(await readFile(recoveryPath, "utf8"));
+          throw new Error(`Предыдущий перенос не завершён. Сессия ${pending.provider}: ${pending.sessionId}. Нужна помощь оркестратора.`);
+        } catch (error) {
+          if ((error as {code?: string}).code !== "ENOENT") throw error;
+        }
+        return await transfer(client, input, {
+          before: async (agent) => {
+            await mkdir(directory, { recursive: true, mode: 0o700 });
+            await writeFile(recoveryPath, JSON.stringify({
+              agentId: agent.id, sourceId: input.sourceId, targetId: input.targetId,
+              provider: agent.provider, sessionId: agent.persistence!.sessionId,
+              cwd: agent.cwd, title: agent.title, labels: agent.labels,
+              archived: !!agent.archivedAt, unread,
+            }), { mode: 0o600 });
+          },
+          restore: async (agent) => {
+            delete state.candidates[agent.id]; // This is an existing conversation.
+            if (unread !== undefined) state.unread[agent.id] = unread;
+            await save();
+            if (unread) await paseo.agents.ref(agent.id).timeline.append({
+              type: "plugin", id: `read-${unread}`, kind: "read-marker", version: 1,
+              data: { agentId: agent.id, token: unread },
+            });
+            await unlink(recoveryPath).catch(error => { if (error.code !== "ENOENT") throw error; });
+          },
+        });
+      } finally { await client.close(); }
+    })();
+    transfers.add(operation);
+    try { return await operation; }
+    finally { moving.delete(input.agentId); transfers.delete(operation); }
+  });
   server.handle(claimAction, async ({ token }) => {
     await ready;
     if (state.actions[token]) return { claimed: false };
@@ -143,6 +195,7 @@ export function register(server: PluginServerContext) {
   });
   server.handle(markRead, async ({ agentId, token }) => {
     await ready;
+    if (moving.has(agentId)) return {};
     // Late observers cannot acknowledge a newer answer.
     if (state.unread[agentId] === token) {
       state.unread[agentId] = "";
@@ -290,6 +343,7 @@ export function register(server: PluginServerContext) {
   );
   console.log("Диалоги: сервер запущен");
   return async () => {
+    await Promise.allSettled([...transfers]);
     offWorkspaceCreated();
     offWorkspaceArchived();
     await orderQueue;
