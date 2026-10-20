@@ -184,7 +184,7 @@ export function hideNativeWorkspaces(enabled: boolean) {
 // scale, .9 opacity and 200ms ease transition on our own subtree only.
 interface DragElement {
   parentElement: DragElement | null;
-  style: { transform: string; transition: string; opacity: string; zIndex: string; outline?: string; backgroundColor?: string };
+  style: { transform: string; transition: string; opacity: string; zIndex: string; outline?: string; backgroundColor?: string; borderRadius?: string; boxShadow?: string };
   getAttribute(name: string): string | null;
   getBoundingClientRect(): { top: number; height: number; left: number; width: number };
   closest(selector: string): DragElement | null;
@@ -201,13 +201,13 @@ export function hasOpenAgentTab(id: string) {
     .some(el => el.getAttribute("data-testid") === `workspace-tab-agent_${id}`);
 }
 
-export function bindDialogDrag(node: unknown, color: string, background: string,
+export function bindDialogDrag(node: unknown, hover: string, background: string,
   onDrop: (agentId: string, targetId: string) => void,
   canMove: (agentId: string) => boolean) {
   if (Platform.OS !== "web" || !node) return () => {};
   const root = node as DragElement, doc = document as unknown as DragElement, win = window as unknown as DragElement;
   let drag: { row: DragElement; group: DragElement; groupZ: string; id: string; source: string; x: number; y: number; pointer: number;
-    active: boolean; target?: string; style: DragElement["style"]; highlights: [DragElement, string | undefined][] } | undefined;
+    active: boolean; target?: string; style: DragElement["style"]; highlights: [DragElement, Partial<DragElement["style"]>][]; children: [DragElement, Partial<DragElement["style"]>][]; top: number } | undefined;
   let swallow = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stopClick = (e: DragEvent) => { if (swallow) { e.preventDefault(); e.stopImmediatePropagation(); } };
@@ -217,7 +217,8 @@ export function bindDialogDrag(node: unknown, color: string, background: string,
     drag = undefined;
     Object.assign(d.row.style, d.style);
     d.group.style.zIndex = d.groupZ;
-    d.highlights.forEach(([el, outline]) => { el.style.outline = outline ?? ""; });
+    d.children.forEach(([el, style]) => Object.assign(el.style, style));
+    d.highlights.forEach(([el, style]) => Object.assign(el.style, style));
     if (d.active) timer = setTimeout(clearClick, 0);
     if (commit && d.target) onDrop(d.id, d.target);
   };
@@ -231,7 +232,8 @@ export function bindDialogDrag(node: unknown, color: string, background: string,
       source: group.getAttribute("data-testid")!.slice(14),
       x: e.clientX, y: e.clientY, pointer: e.pointerId, active: false,
       style: { transform: row.style.transform, opacity: row.style.opacity,
-        transition: row.style.transition, zIndex: row.style.zIndex, backgroundColor: row.style.backgroundColor }, highlights: [] };
+        transition: row.style.transition, zIndex: row.style.zIndex, backgroundColor: row.style.backgroundColor, borderRadius: row.style.borderRadius }, highlights: [],
+      top: row.getBoundingClientRect().top, children: [...row.querySelectorAll('[role="button"]')].map(el => [el, { backgroundColor: el.style.backgroundColor, outline: el.style.outline, boxShadow: el.style.boxShadow }]) };
   };
   const move = (e: DragEvent) => {
     const d = drag; if (!d || d.pointer !== e.pointerId) return;
@@ -244,15 +246,25 @@ export function bindDialogDrag(node: unknown, color: string, background: string,
     e.preventDefault();
     d.group.style.zIndex = "1000";
     Object.assign(d.row.style, { transform: `translate3d(0px, ${delta}px, 0px) scale(1.02)`,
-      transition: "none", opacity: "0.9", zIndex: "1000", backgroundColor: background });
-    d.highlights.forEach(([el, outline]) => { el.style.outline = outline ?? ""; });
+      transition: "none", opacity: "0.9", zIndex: "1000", backgroundColor: background, borderRadius: "9px" });
+    d.children.forEach(([el]) => Object.assign(el.style, { backgroundColor: background, outline: "none", boxShadow: "none" }));
+    d.highlights.forEach(([el, style]) => Object.assign(el.style, style));
     d.highlights = []; d.target = undefined;
     for (const group of root.querySelectorAll('[data-testid^="dialogs-group-wks_"]')) {
       const id = group.getAttribute("data-testid")!.slice(14), r = group.getBoundingClientRect();
       if (id !== d.source && e.clientY >= r.top && e.clientY <= r.top + r.height &&
           e.clientX >= r.left && e.clientX <= r.left + r.width) {
-        d.target = id; d.highlights.push([group, group.style.outline]);
-        group.style.outline = `2px solid ${color}`;
+        d.target = id;
+        for (const el of [group, ...group.querySelectorAll('[role="button"]')]) {
+          d.highlights.push([el, { backgroundColor: el.style.backgroundColor, borderRadius: el.style.borderRadius }]);
+          Object.assign(el.style, { backgroundColor: hover, borderRadius: "9px" });
+        }
+        const header = [...group.querySelectorAll('[data-testid="dialogs-group-handle"]')][0];
+        if (header) {
+          const h = header.getBoundingClientRect();
+          const offset = Math.max(delta, h.top + h.height + 4 - d.top);
+          d.row.style.transform = `translate3d(0px, ${offset}px, 0px) scale(1.02)`;
+        }
         break;
       }
     }

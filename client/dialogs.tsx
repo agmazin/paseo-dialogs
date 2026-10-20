@@ -26,6 +26,7 @@ import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab } from "./web";
 import {
+  palette,
   AgentLine,
   ArchiveLine,
   Block,
@@ -246,8 +247,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
       {transferMutation.isPending && <Label color={p.theme.colors.foregroundMuted} size={12}>Перенос диалога...</Label>}
       <SortableGroups order={groupOrder}
         disabled={orderMutation.isPending || transferMutation.isPending || p.layout.compact}
-        color={p.theme.colors.foregroundMuted}
-        background={p.theme.colors.surface0}
+        hover={palette(p.theme).hover}
+        background={palette(p.theme).active}
         canMoveDialog={id => {
           const a = all.find(a => a.id === id);
           if (!a) return false;
