@@ -39,14 +39,23 @@ paseo plugin ls --host 127.0.0.1:6782
 paseo plugin logs paseo-dialogs --host 127.0.0.1:6782
 ```
 
-6782 - только тестовый демон. Для основной установки оркестратор после приёмки
-использует адрес основного демона. Перезапуск для обновления плагина не нужен.
+6782 - только тестовый демон. Перезапуск для обновления плагина не нужен.
+
+Основной Paseo Александра (с 20.10.2026) грузит плагин не из этого каталога, а из клона
+по тегу принятой версии: `/Users/agmazin/Library/Developer/paseo-releases/paseo-dialogs`
+(`node_modules` - тот же симлинк). Исполнители работают в этом каталоге на месте, и
+перезагрузка из него подхватила бы черновик. Обновление после приёмки - у оркестратора:
+
+```sh
+git -C /Users/agmazin/Library/Developer/paseo-releases/paseo-dialogs fetch --tags origin
+git -C /Users/agmazin/Library/Developer/paseo-releases/paseo-dialogs checkout vX.Y.Z
+paseo plugin reload paseo-dialogs
+```
 
 ## Откат
 
-Отключить на выбранном хосте: `paseo plugin disable paseo-dialogs --host HOST`.
-Подготовить отдельную копию проверенного коммита, зависимости и установить её
-локальный путь на том же хосте. Не делать reset общей рабочей копии.
+Тот же `checkout` на прежний тег и `paseo plugin reload paseo-dialogs`.
+Быстро отключить: `paseo plugin disable paseo-dialogs`. Не делать reset общей рабочей копии.
 Тег версии ставит оркестратор после приёмки.
 
 ## Данные и доступы
