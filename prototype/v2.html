@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Прототип v2: диалоги в боковой панели Paseo</title>
+<style>
+:root {
+  --page: #0d0d0e;
+  --win: #1b1b1b;
+  --side: #181818;
+  --line: #2a2a2a;
+  --hover: #222222;
+  --active: #2b2b2b;
+  --fg: #ececec;
+  --fg2: #a6a6a6;
+  --fg3: #6f6f6f;
+  --run: #5caaf6;
+  --ok: #35c264;
+  --warn: #db932e;
+  --bad: #f7796d;
+  --pink: #c25b7f;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--page);
+  color: var(--fg);
+  font: 14px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.page-head { max-width: 1560px; margin: 20px auto 14px; padding: 0 24px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.page-head h1 { font-size: 18px; font-weight: 600; margin: 0; }
+.page-head p { margin: 0; color: var(--fg2); font-size: 13px; }
+.stage { max-width: 1560px; margin: 0 auto 32px; padding: 0 24px; display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+
+/* окно Paseo */
+.window { position: relative; flex: 0 0 1130px; height: 800px; background: var(--win); border: 1px solid #2c2c2c; border-radius: 12px; overflow: hidden; display: flex; box-shadow: 0 30px 80px rgba(0, 0, 0, .55); }
+.ico { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.ico.pf { fill: currentColor; stroke: none; }
+
+/* боковая панель */
+.side { width: 322px; flex: 0 0 322px; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.side-top { height: 44px; display: flex; align-items: center; gap: 16px; padding: 0 14px; color: var(--fg2); flex: 0 0 auto; }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #3a3a3a; display: block; }
+.side-scroll { flex: 1 1 auto; overflow-y: auto; padding: 2px 0 10px; scrollbar-width: thin; scrollbar-color: #333 transparent; }
+.row { --cut: var(--side); display: flex; align-items: center; gap: 10px; height: 34px; margin: 0 8px; padding: 0 10px; border-radius: 9px; color: var(--fg); cursor: pointer; user-select: none; white-space: nowrap; }
+.row:hover { --cut: var(--hover); background: var(--hover); }
+.row.sel { --cut: var(--active); background: var(--active); }
+.row .ico { color: var(--fg2); }
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sep { height: 1px; background: var(--line); margin: 8px 0; }
+.label { display: flex; align-items: center; justify-content: space-between; height: 30px; margin: 2px 8px 0; padding: 0 10px; color: var(--fg2); font-size: 13px; }
+.label .ico { width: 15px; height: 15px; color: var(--fg3); }
+.tag { font-size: 11px; color: var(--run); background: rgba(92, 170, 246, .13); padding: 1px 7px; border-radius: 999px; margin-left: 8px; }
+
+/* блок плагина */
+.plugin { margin: 8px 6px 4px; padding: 0 0 6px; border: 1px dashed rgba(92, 170, 246, .4); border-radius: 12px; }
+.plugin .row { margin: 0 2px; }
+.plugin .label { margin: 0 2px; padding-right: 6px; }
+.grp .name { font-weight: 500; }
+.chev { width: 14px; height: 14px; color: var(--fg3); stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s ease; flex: 0 0 14px; }
+.chev.open { transform: rotate(90deg); }
+.sum { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chip { display: inline-flex; align-items: center; gap: 5px; color: var(--fg2); }
+.add { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg2); flex: 0 0 24px; }
+.add .ico { width: 15px; height: 15px; }
+.add:hover { background: #333; color: var(--fg); }
+.grp .add { display: none; margin-left: -4px; margin-right: -6px; }
+.grp:hover .add, .grp.hot .add { display: inline-flex; }
+.grp.hot { background: var(--hover); }
+.agent { height: 30px; padding-left: 30px; font-size: 13.5px; }
+.agent .ttl, .old .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agent .ttl { color: #dcdcdc; }
+.time { color: var(--fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.arch { height: 30px; padding-left: 30px; color: var(--fg2); font-size: 13.5px; }
+.arch .ttl { flex: 1; }
+.old { height: 28px; padding-left: 44px; font-size: 13px; color: var(--fg2); }
+.old .pv { color: var(--fg3); }
+.more { height: 28px; padding-left: 70px; font-size: 12.5px; color: var(--run); }
+.row.empty { height: 30px; padding-left: 32px; color: var(--fg3); font-size: 12.5px; cursor: default; }
+.row.empty:hover { background: transparent; }
+.kin { animation: kin .16s ease-out; }
+@keyframes kin { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.flash { animation: flash 1.1s ease-out; }
+@keyframes flash { 0% { background: rgba(92, 170, 246, .22); } 100% { background: transparent; } }
+
+/* значки статуса, как на вкладках Paseo */
+.pv { position: relative; width: 16px; height: 16px; flex: 0 0 16px; color: var(--fg2); }
+.pv .ico { width: 16px; height: 16px; }
+.bd { position: absolute; border-radius: 50%; box-shadow: 0 0 0 1.6px var(--cut, var(--side)); }
+.bd-run, .bd-att, .bd-fail { width: 7px; height: 7px; right: -2px; bottom: -2px; }
+.bd-run { background: var(--run); }
+.bd-run::after { content: ""; position: absolute; inset: -3.5px; border-radius: 50%; border: 1.5px solid rgba(92, 170, 246, .2); border-top-color: var(--run); animation: spin .9s linear infinite; }
+.bd-att { background: var(--ok); }
+.bd-fail { background: var(--bad); }
+.bd-need { width: 12px; height: 12px; right: -4px; bottom: -4px; background: var(--warn); color: #1b1b1b; font: 800 9px/12px -apple-system, system-ui, sans-serif; text-align: center; }
+.mini { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.m-run { background: var(--run); }
+.m-run::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 1.4px solid rgba(92, 170, 246, .2); border-top-color: var(--run); animation: spin .9s linear infinite; }
+.m-att { background: var(--ok); }
+.m-fail { background: var(--bad); }
+.m-need { width: 12px; height: 12px; background: var(--warn); color: #1b1b1b; font: 800 9px/12px -apple-system, system-ui, sans-serif; text-align: center; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* родной список Paseo */
+.proj .pi { width: 18px; height: 18px; border-radius: 5px; background: var(--pink); color: #fff; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.nws { padding-left: 14px; }
+.wsdot { width: 7px; height: 7px; border-radius: 50%; background: #4a4a4a; margin: 0 3px; flex: 0 0 auto; }
+.wsdot.run { width: 12px; height: 12px; margin: 0 1px; background: radial-gradient(circle, var(--run) 0 2.6px, transparent 3.2px); border: 1.6px solid var(--run); }
+.side-foot { height: 46px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; color: var(--fg2); flex: 0 0 auto; }
+.side-foot span { display: flex; gap: 16px; }
+
+/* правая часть окна */
+.main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; color: var(--fg); flex: 0 0 auto; }
+.topbar .muted { color: var(--fg2); }
+.topbar .ico { color: var(--fg2); }
+.tabs { height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); overflow: hidden; flex: 0 0 auto; }
+.tab { --cut: var(--win); display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 9px; border-radius: 8px; color: var(--fg2); font-size: 13px; max-width: 170px; white-space: nowrap; cursor: pointer; flex: 0 1 auto; min-width: 0; }
+.tab:hover { --cut: #222; background: #222; }
+.tab.on { --cut: #262626; background: #262626; color: var(--fg); flex-shrink: 0; }
+.tab .tt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tab .x { width: 13px; height: 13px; color: var(--fg3); }
+.tab.plus { color: var(--fg2); padding: 0 8px; flex-shrink: 0; }
+.chat { flex: 1; overflow-y: auto; padding: 34px 70px 24px; display: flex; flex-direction: column; gap: 18px; scrollbar-width: thin; scrollbar-color: #333 transparent; }
+.hello .h-ttl { font-size: 20px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hello .h-sub { margin-top: 6px; color: var(--fg2); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.sk { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+.sk i { display: block; height: 10px; border-radius: 6px; background: #252525; }
+.sk.me { align-items: flex-end; }
+.sk.me i { height: 34px; border-radius: 12px; background: #232323; }
+.sk.tool { flex-direction: row; align-items: center; gap: 10px; }
+.sk.tool b { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid #333; display: block; flex: 0 0 auto; }
+.sk.last i { background: #2e2e2e; }
+.think { display: flex; align-items: center; gap: 12px; color: var(--fg2); font-size: 13px; padding-left: 2px; }
+.ask { align-self: stretch; background: #202020; border: 1px solid rgba(219, 147, 46, .45); border-radius: 12px; padding: 14px 16px; }
+.ask-h { display: flex; align-items: center; gap: 8px; color: #f0b25c; font-size: 12.5px; margin-bottom: 6px; }
+.ask-q { font-size: 14.5px; font-weight: 600; margin-bottom: 12px; }
+.ask-o { display: flex; gap: 8px; flex-wrap: wrap; }
+.composer { margin: 0 48px 20px; border: 1px solid #2e2e2e; border-radius: 14px; padding: 14px 16px 12px; background: #1e1e1e; flex: 0 0 auto; }
+.composer .ph { color: var(--fg3); font-size: 13.5px; }
+.composer .cbar { display: flex; gap: 16px; margin-top: 18px; color: var(--fg2); font-size: 13px; align-items: center; }
+.composer .cbar span { display: inline-flex; gap: 6px; align-items: center; }
+.pill { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); display: none; align-items: center; gap: 8px; background: #2a2a2a; border: 1px solid #3a3a3a; color: var(--fg); padding: 7px 14px 7px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+.pill.show { display: inline-flex; }
+.pill .ico { width: 15px; height: 15px; color: var(--ok); }
+.pill:hover { background: #313131; }
+.draft { margin: auto; text-align: center; max-width: 420px; }
+.draft-t { font-size: 20px; font-weight: 600; }
+.draft-s { color: var(--fg2); font-size: 13px; margin-top: 8px; line-height: 1.5; }
+.term { flex: 1; margin: -10px -46px 0; background: #111; border-radius: 10px; padding: 16px 18px; font: 13px/1.6 "SF Mono", Menlo, monospace; color: #cfcfcf; }
+.cur { display: inline-block; width: 8px; height: 15px; background: #cfcfcf; vertical-align: -3px; animation: blink 1s steps(1) infinite; margin-left: 2px; }
+@keyframes blink { 50% { opacity: 0; } }
+.browser { flex: 1; margin: -10px -46px 0; display: flex; flex-direction: column; gap: 12px; }
+.addr { display: flex; align-items: center; gap: 10px; background: #232323; border: 1px solid #2e2e2e; border-radius: 10px; padding: 9px 12px; color: var(--fg3); font-size: 13px; }
+.addr .ico { width: 15px; height: 15px; }
+.bpage { flex: 1; border: 1px dashed #2e2e2e; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--fg3); font-size: 13px; }
+
+/* меню + */
+.menu { position: absolute; z-index: 20; min-width: 250px; background: #1f1f1f; border: 1px solid #333; border-radius: 12px; padding: 6px; box-shadow: 0 16px 40px rgba(0, 0, 0, .55); animation: kin .12s ease-out; }
+.mi { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 10px; border-radius: 8px; color: var(--fg); font-size: 14px; cursor: pointer; user-select: none; }
+.mi:hover { background: #2a2a2a; }
+.mi .ico { width: 17px; height: 17px; color: var(--fg2); }
+.kbd { margin-left: auto; background: #2c2c2c; color: var(--fg2); font-size: 12px; padding: 2px 7px; border-radius: 6px; letter-spacing: .5px; }
+.msep { height: 1px; background: #2e2e2e; margin: 6px -6px; }
+.mlabel { color: var(--fg3); font-size: 12.5px; padding: 6px 10px 4px; }
+.menu.form { width: 290px; padding: 8px 10px 10px; }
+.inp { width: 100%; background: #171717; border: 1px solid #3a3a3a; border-radius: 8px; color: var(--fg); font: inherit; padding: 8px 10px; outline: none; margin-top: 2px; }
+.inp:focus { border-color: var(--run); }
+.mhint { color: var(--fg3); font-size: 12px; margin: 8px 2px 10px; }
+.mrow { display: flex; justify-content: flex-end; }
+.ta { display: block; min-height: 78px; resize: none; margin-top: 16px; text-align: left; line-height: 1.45; }
+.draft .mrow { margin-top: 10px; }
+
+/* пояснения справа */
+.legend { flex: 0 1 340px; min-width: 300px; display: flex; flex-direction: column; gap: 14px; }
+.card { --cut: #141415; background: #141415; border: 1px solid #262626; border-radius: 12px; padding: 14px 16px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--fg2); }
+.lg { display: grid; grid-template-columns: 20px 1fr; gap: 1px 10px; align-items: center; margin: 10px 0; }
+.lg b { font-weight: 600; font-size: 13.5px; }
+.lg p { grid-column: 2; margin: 0; color: var(--fg2); font-size: 12.5px; line-height: 1.45; }
+.card ul { padding-left: 18px; margin: 0; color: #d0d0d0; font-size: 13px; line-height: 1.5; }
+.card ul li + li { margin-top: 4px; }
+.btn { appearance: none; border: 1px solid #333; background: #232323; color: var(--fg); padding: 8px 14px; border-radius: 9px; font: inherit; cursor: pointer; }
+.btn:hover { background: #2a2a2a; }
+.btn.sm { padding: 6px 12px; font-size: 13px; }
+.btn.on { border-color: var(--run); color: #fff; background: rgba(92, 170, 246, .15); }
+.hint { color: var(--fg3); font-size: 12px; margin: 8px 0 0; }
+.toast { position: absolute; left: 20px; bottom: 58px; max-width: 300px; background: #262626; border: 1px solid #343434; color: var(--fg); font-size: 12.5px; padding: 10px 12px; border-radius: 10px; opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; pointer-events: none; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); z-index: 30; }
+.toast.show { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>Диалоги в боковой панели Paseo</h1>
+  <p>Прототип v2: значки как на вкладках, меню + как родное, зелёная гаснет только внизу чата. Пунктир - то, что добавит плагин.</p>
+</header>
+
+<main class="stage">
+  <div class="window" id="win">
+    <aside class="side">
+      <div class="side-top">
+        <span class="lights"><i></i><i></i><i></i></span>
+        <svg class="ico" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+      </div>
+      <div class="side-scroll">
+        <div class="row"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="name">Новое рабочее пространство</span></div>
+        <div class="row"><svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg><span class="name">История</span></div>
+        <div class="row"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="name">Поиск</span></div>
+        <div class="row"><svg class="ico" viewBox="0 0 24 24"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M17.5 17.5 16 16.3V14"/><circle cx="16" cy="16" r="6"/></svg><span class="name">Расписания</span></div>
+
+        <section class="plugin">
+          <div class="label"><span>Диалоги<span class="tag">плагин</span></span><span class="add" data-act="menu-ws" title="Новое рабочее пространство"><svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span></div>
+          <div id="dialogs"></div>
+        </section>
+
+        <div class="sep"></div>
+        <div class="label"><span>Workspaces</span><svg class="ico" viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg></div>
+        <div id="native"></div>
+      </div>
+      <div class="side-foot">
+        <span>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          <svg class="ico" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
+          <svg class="ico" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/></svg>
+        </span>
+        <span>
+          <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        </span>
+      </div>
+    </aside>
+
+    <section class="main">
+      <div class="topbar">
+        <span id="ws-title">ЭкоЭксперт</span><span class="muted">AI OS</span>
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+      <div class="tabs" id="tabs"></div>
+      <div class="chat" id="chat"></div>
+      <div class="pill" id="pill" data-act="pill"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>Новое сообщение ниже</div>
+      <div class="composer" id="composer">
+        <div class="ph">Напишите агенту сообщение, отметьте @files или используйте /commands и /skills.</div>
+        <div class="cbar">
+          <span>+</span>
+          <span><svg class="ico pf" style="width:15px;height:15px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>Opus 5.5</span>
+          <span>Max</span>
+          <span>Bypass</span>
+        </div>
+      </div>
+    </section>
+    <div id="menu-layer"></div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <aside class="legend">
+    <div class="card">
+      <h3>Попробуй</h3>
+      <ul>
+        <li>Открой "Задачи amoCRM" и долистай чат вниз: зелёная погаснет.</li>
+        <li>В "Смотри, на панели..." ответь на вопрос: оранжевый сменится синим.</li>
+        <li>Наведи на agmazin, нажми + и выбери Агент, затем Отправить: после ответа название сожмётся до 1-2 слов.</li>
+        <li>Плюс у "Диалоги" создаёт новое рабочее пространство.</li>
+      </ul>
+      <p class="hint"><button class="btn sm" id="demo">Оживить статусы</button></p>
+    </div>
+    <div class="card">
+      <h3>Значки как на вкладках Paseo</h3>
+      <div class="lg"><span class="pv"><svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg><span class="bd bd-run"></span></span><b>В работе</b><p>агент выполняет ход</p></div>
+      <div class="lg"><span class="pv"><svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg><span class="bd bd-need">!</span></span><b>Ожидает ввода</b><p>вопрос или запрос разрешения, нужен твой ответ</p></div>
+      <div class="lg"><span class="pv"><svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg><span class="bd bd-att"></span></span><b>На проверку</b><p>закончил, а ты не долистал до последнего сообщения</p></div>
+      <div class="lg"><span class="pv"><svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg><span class="bd bd-fail"></span></span><b>Ошибка</b><p>ход упал</p></div>
+      <div class="lg"><span class="pv"><svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg></span><b>Готово</b><p>всё прочитано</p></div>
+    </div>
+    <div class="card">
+      <h3>Как ведёт себя</h3>
+      <ul>
+        <li>Новому агенту после первого ответа даю название в 1-2 слова. Названия, заданные руками, не трогаю.</li>
+        <li>+ у группы - то же меню, что + над вкладками.</li>
+        <li>Терминалы попадают в список, вкладки браузера нет: Paseo не отдаёт их плагинам.</li>
+        <li>Архив свёрнут, что свернёшь - запомнится.</li>
+        <li>Сверху самые свежие, как в Телеграме.</li>
+        <li>У свёрнутой группы видно, сколько ждут, работают и на проверке.</li>
+        <li>Сабагенты в список не попадают.</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<script>
+const NOW = new Date(2026, 9, 20, 12, 23).getTime();
+const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const STATUS_TEXT = { run: 'В работе', need: 'Ожидает ввода', att: 'На проверку', fail: 'Ошибка', done: 'Готово' };
+
+const ICON = {
+  chev: '<svg class="chev{o}" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+  claude: '<svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></svg>',
+  codex: '<svg class="ico pf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd"><path d="M21.55 10.004a5.416 5.416 0 00-.478-4.501c-1.217-2.09-3.662-3.166-6.05-2.66A5.59 5.59 0 0010.831 1C8.39.995 6.224 2.546 5.473 4.838A5.553 5.553 0 001.76 7.496a5.487 5.487 0 00.691 6.5 5.416 5.416 0 00.477 4.502c1.217 2.09 3.662 3.165 6.05 2.66A5.586 5.586 0 0013.168 23c2.443.006 4.61-1.546 5.361-3.84a5.553 5.553 0 003.715-2.66 5.488 5.488 0 00-.693-6.497v.001zm-8.381 11.558a4.199 4.199 0 01-2.675-.954c.034-.018.093-.05.132-.074l4.44-2.53a.71.71 0 00.364-.623v-6.176l1.877 1.069c.02.01.033.029.036.05v5.115c-.003 2.274-1.87 4.118-4.174 4.123zM4.192 17.78a4.059 4.059 0 01-.498-2.763c.032.02.09.055.131.078l4.44 2.53c.225.13.504.13.73 0l5.42-3.088v2.138a.068.068 0 01-.027.057L9.9 19.288c-1.999 1.136-4.552.46-5.707-1.51h-.001zM3.023 8.216A4.15 4.15 0 015.198 6.41l-.002.151v5.06a.711.711 0 00.364.624l5.42 3.087-1.876 1.07a.067.067 0 01-.063.005l-4.489-2.559c-1.995-1.14-2.679-3.658-1.53-5.63h.001zm15.417 3.54l-5.42-3.088L14.896 7.6a.067.067 0 01.063-.006l4.489 2.557c1.998 1.14 2.683 3.662 1.529 5.633a4.163 4.163 0 01-2.174 1.807V12.38a.71.71 0 00-.363-.623zm1.867-2.773a6.04 6.04 0 00-.132-.078l-4.44-2.53a.731.731 0 00-.729 0l-5.42 3.088V7.325a.068.068 0 01.027-.057L14.1 4.713c2-1.137 4.555-.46 5.707 1.513.487.833.664 1.809.499 2.757h.001zm-11.741 3.81l-1.877-1.068a.065.065 0 01-.036-.051V6.559c.001-2.277 1.873-4.122 4.181-4.12.976 0 1.92.338 2.671.954-.034.018-.092.05-.131.073l-4.44 2.53a.71.71 0 00-.365.623l-.003 6.173v.002zm1.02-2.168L12 9.25l2.414 1.375v2.75L12 14.75l-2.415-1.375v-2.75z"/></svg>',
+  term: '<svg class="ico" viewBox="0 0 24 24"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>',
+  globe: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>',
+  pen: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>',
+  archive: '<svg class="ico" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+  x: '<svg class="ico x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  plus: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+};
+const BADGE = {
+  run: '<span class="bd bd-run"></span>',
+  need: '<span class="bd bd-need">!</span>',
+  att: '<span class="bd bd-att"></span>',
+  fail: '<span class="bd bd-fail"></span>',
+  done: '',
+};
+
+function parse(s) {
+  const [d, t] = s.split('T');
+  const [Y, M, D] = d.split('-').map(Number);
+  const [h, m] = t.split(':').map(Number);
+  return new Date(Y, M - 1, D, h, m).getTime();
+}
+
+function when(ms) {
+  if (NOW - ms < 2 * 60000) return 'сейчас';
+  const d = new Date(ms);
+  const now = new Date(NOW);
+  if (d.toDateString() === now.toDateString()) {
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  const y = new Date(NOW);
+  y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'вчера';
+  return d.getDate() + ' ' + MON[d.getMonth()];
+}
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const SOURCE = [
+  {
+    id: 'agmazin', name: 'agmazin', archiveCount: 159,
+    agents: [
+      { id: 'a1', title: 'Маркетологи', prov: 'claude', st: 'done', last: '2026-10-19T18:17', tab: 0 },
+      { id: 'a2', title: 'Мазин PRIME', prov: 'codex', st: 'done', last: '2026-10-19T18:16', tab: 1 },
+      { id: 'a3', title: 'Клубари', prov: 'codex', st: 'done', last: '2026-09-28T12:30', tab: 2 },
+      { id: 'a4', title: 'Коучинг', prov: 'codex', st: 'done', last: '2026-09-28T12:29', tab: 3 },
+    ],
+    archive: [
+      ['Как там в Paseo всё устроено? Почему я не могу общаться с аг', '2026-10-02T19:56', 'claude'],
+      ['БД отчетико', '2026-10-02T17:07', 'claude'],
+      ['Проекты multico', '2026-10-02T16:09', 'codex'],
+      ['Claude: истекла авторизация, нужен повторный OAuth; общий п', '2026-09-30T19:48', 'claude'],
+      ['Сколько получает пилот в долларах во FlyDubai?', '2026-09-30T10:37', 'claude'],
+      ['ДТП бот', '2026-09-29T21:29', 'claude'],
+      ['Отчетико', '2026-09-29T21:03', 'codex'],
+      ['miro', '2026-09-29T21:00', 'claude'],
+      ['https://miro.com/app/board/uXjVK-xX6qI=/ эта доска тебе дост', '2026-09-29T17:42', 'codex'],
+      ['давай mcp miro подключим, хочу чтобы ты там структуру БД про', '2026-09-29T17:42', 'codex'],
+      ['Алиса CLI', '2026-09-28T23:21', 'codex'],
+      ['multica', '2026-09-28T23:06', 'codex'],
+      ['Мой сайт /new', '2026-09-28T23:06', 'codex'],
+      ['Эквайринг', '2026-09-28T22:28', 'codex'],
+      ['можешь приложение pdf expert сохранить в виде архива локальн', '2026-09-28T18:51', 'codex'],
+      ['dev.hh.ru', '2026-09-28T15:57', 'codex'],
+      ['Домофон', '2026-09-28T15:57', 'codex'],
+      ['УСН 6%', '2026-09-28T14:03', 'codex'],
+      ['а малтико где стоит у меня?', '2026-09-28T13:57', 'codex'],
+      ['ты же к моей телеге имеешь доступ? КАНАЛ https://t.me/your_p', '2026-09-28T12:30', 'claude'],
+      ['На сайте егора в игре не хватает отбатного отсчета. Я даже с', '2026-09-27T15:01', 'claude'],
+      ['Слушай, а эту мою новую страницу сайта, может быть, тоже на', '2026-09-27T15:01', 'claude'],
+      ['Куда катится мир?', '2026-09-27T00:04', 'claude'],
+      ['А здесь палочку внизу после последнего буллета убери, пожалу', '2026-09-26T18:40', 'claude'],
+      ['https://egoraryamov.agmazin.ru/', '2026-09-26T18:08', 'codex'],
+    ],
+  },
+  {
+    id: 'eco', name: 'ЭкоЭксперт', archiveCount: 154,
+    agents: [
+      { id: 'e1', title: 'Смотри, на панели слева мы видим "agmazin" и "ЭкоЭксперт", а', prov: 'claude', st: 'need', last: '2026-10-20T12:23', tab: 5,
+        q: 'Где будет список диалогов?', opts: ['Блок над Workspaces', 'Внутри родного дерева'] },
+      { id: 'e6', title: 'Паркинг', prov: 'claude', st: 'run', last: '2026-10-20T12:21', tab: 3 },
+      { id: 'e2', title: 'Задачи amoCRM', prov: 'claude', st: 'att', last: '2026-10-20T11:49', tab: 4 },
+      { id: 'e3', title: 'ЭкоЭксперт', prov: 'claude', st: 'done', last: '2026-10-20T11:23', tab: 0 },
+      { id: 'e4', title: 'Общий ChatGPT', prov: 'claude', st: 'done', last: '2026-10-19T18:17', tab: 1 },
+      { id: 'e5', title: 'Очтётико', prov: 'claude', st: 'done', last: '2026-10-19T18:16', tab: 2 },
+    ],
+    archive: [
+      ['Курышева', '2026-10-19T18:47', 'claude'],
+      ['UGC Mafia', '2026-10-19T18:47', 'claude'],
+      ['Шортсы', '2026-10-19T18:47', 'claude'],
+      ['Коучинг', '2026-10-19T18:47', 'claude'],
+      ['я только сейчас увидел ч то у пасео есть расширения типа так', '2026-10-19T18:46', 'claude'],
+      ['настрой paseo, чтобы размышления агента были в свернутом вид', '2026-10-19T14:43', 'claude'],
+      ['Найди инфу, как настраивались в CTG коннекторы MCP сервера н', '2026-10-19T14:34', 'claude'],
+      ['Курышева', '2026-10-19T13:18', 'claude'],
+      ['git', '2026-10-19T12:32', 'claude'],
+      ['vc.ru', '2026-10-19T12:28', 'claude'],
+      ['agmazin.ru', '2026-10-16T16:36', 'claude'],
+      ['https://notebook.google/?hl=ru не могу на сайт зайти, хочу и', '2026-10-16T14:41', 'claude'],
+      ['PostMyPost.io', '2026-10-14T19:33', 'claude'],
+      ['Конкуренты Отчетико', '2026-10-14T10:51', 'claude'],
+      ['Почему комп перегревается? Проверьч что или кто его грузит', '2026-10-13T20:49', 'codex'],
+      ['Пропущенные на меня', '2026-10-13T17:51', 'codex'],
+      ['Чехов Спейс', '2026-10-13T17:50', 'claude'],
+      ['Правки СЕО', '2026-10-13T17:50', 'claude'],
+      ['FocusTube', '2026-10-13T17:50', 'claude'],
+      ['Малтико', '2026-10-13T17:50', 'claude'],
+      ['Счета КМС', '2026-10-13T17:48', 'claude'],
+      ['Apple Mac Mini M6 2026 (12C CPU/12C GPU) 24GB, 512GB MHQM4', '2026-10-13T16:30', 'codex'],
+      ['https://core.telegram.org/bots/serverless', '2026-10-12T16:31', 'codex'],
+      ['Выстави счет на 50490, возьми последний счет, пока, посмотри', '2026-10-12T10:32', 'claude'],
+      ['СПАМ ЭЭ', '2026-10-12T10:32', 'claude'],
+      ['Claude Design', '2026-10-09T12:35', 'claude'],
+      ['я еще попытался сам настроить remote control , проверь что в', '2026-10-09T12:01', 'claude'],
+      ['Сторис мейкер', '2026-10-09T10:57', 'claude'],
+    ],
+  },
+];
+
+let WS;
+let seq = 0;
+let bump = 0;
+function resetData() {
+  WS = JSON.parse(JSON.stringify(SOURCE));
+  for (const ws of WS) {
+    ws.agents.forEach((a, i) => { a.t = parse(a.last); a.order = i; a.kind = 'agent'; });
+    ws.archive = ws.archive.map(([title, last, prov]) => ({ title, t: parse(last), prov }));
+    ws.extra = [];
+  }
+  bump = 0;
+}
+resetData();
+
+const ui = {
+  open: { agmazin: true, eco: true },
+  arch: { agmazin: false, eco: false },
+  shown: { agmazin: 10, eco: 10 },
+  native: false,
+  sel: { ws: 'eco', id: 'e1', old: null, extra: null },
+  menu: null,
+  justOpened: null,
+  flash: null,
+};
+
+const win = document.getElementById('win');
+const chatEl = document.getElementById('chat');
+const pillEl = document.getElementById('pill');
+const findWs = (id) => WS.find((w) => w.id === id);
+const findAgent = (wsId, id) => (findWs(wsId)?.agents || []).find((a) => a.id === id);
+const byFresh = (list) => list.slice().sort((a, b) => b.t - a.t || a.order - b.order);
+const chev = (open) => ICON.chev.replace('{o}', open ? ' open' : '');
+const iconOf = (a) => a.icon || a.prov;
+const pvHTML = (icon, st) => `<span class="pv">${ICON[icon]}${BADGE[st] || ''}</span>`;
+const miniHTML = (st) => `<span class="mini m-${st}">${st === 'need' ? '!' : ''}</span>`;
+const select = (wsId, part) => { ui.sel = Object.assign({ ws: wsId, id: null, old: null, extra: null }, part); };
+
+function agentHTML(ws, a) {
+  const sel = ui.sel.ws === ws.id && ui.sel.id === a.id;
+  const cls = ['row', 'agent', sel ? 'sel' : '', ui.flash === a.id ? 'flash' : ''].join(' ');
+  return `<div class="${cls}" data-act="agent" data-ws="${ws.id}" data-id="${a.id}" title="${esc(a.title)}">${pvHTML(iconOf(a), a.st)}<span class="ttl">${esc(a.title)}</span><span class="time">${when(a.t)}</span></div>`;
+}
+
+function archHTML(ws) {
+  const open = ui.arch[ws.id];
+  let h = `<div class="row arch" data-act="arch" data-ws="${ws.id}">${chev(open)}<span class="ttl">Архив</span><span class="sum">${ws.archiveCount}</span></div>`;
+  if (!open) return h;
+  const n = ui.shown[ws.id];
+  h += `<div class="${ui.justOpened === ws.id + ':a' ? 'kin' : ''}">`;
+  h += ws.archive.slice(0, n).map((it, i) => {
+    const sel = ui.sel.ws === ws.id && ui.sel.old === i;
+    return `<div class="row old${sel ? ' sel' : ''}" data-act="old" data-ws="${ws.id}" data-i="${i}" title="${esc(it.title)}">${pvHTML(it.prov, 'done')}<span class="ttl">${esc(it.title)}</span><span class="time">${when(it.t)}</span></div>`;
+  }).join('');
+  h += n < ws.archive.length
+    ? `<div class="row more" data-act="more" data-ws="${ws.id}">Показать ещё 10</div>`
+    : `<div class="row more" data-act="all" data-ws="${ws.id}">Весь архив: ${ws.archiveCount}</div>`;
+  return h + '</div>';
+}
+
+function groupHTML(ws) {
+  const open = ui.open[ws.id];
+  const items = byFresh(ws.agents);
+  let sum = '';
+  if (!open) {
+    for (const st of ['need', 'run', 'att', 'fail']) {
+      const n = items.filter((a) => a.st === st).length;
+      if (n) sum += `<span class="chip">${miniHTML(st)}${n}</span>`;
+    }
+  }
+  sum += `<span>${items.length}</span>`;
+  const hot = ui.menu && ui.menu.type === 'group' && ui.menu.ws === ws.id;
+  let h = `<div class="row grp${hot ? ' hot' : ''}" data-act="grp" data-ws="${ws.id}">${chev(open)}<span class="name">${esc(ws.name)}</span><span class="sum">${sum}</span><span class="add" data-act="menu-group" data-ws="${ws.id}" title="Агент, терминал или браузер">${ICON.plus}</span></div>`;
+  if (!open) return h;
+  h += `<div class="${ui.justOpened === ws.id ? 'kin' : ''}">`;
+  h += items.length ? items.map((a) => agentHTML(ws, a)).join('') : '<div class="row empty">Пусто. Наведи на название и нажми +</div>';
+  if (ws.archiveCount) h += archHTML(ws);
+  return h + '</div>';
+}
+
+function nativeHTML() {
+  const h = `<div class="row proj" data-act="native"><span class="pi">A</span><span class="name">AI OS</span>${chev(ui.native)}</div>`;
+  if (!ui.native) return h;
+  return h + '<div class="kin"><div class="row nws"><span class="wsdot"></span><span class="name">agmazin</span></div><div class="row nws sel"><span class="wsdot run"></span><span class="name">ЭкоЭксперт</span></div></div>';
+}
+
+function renderSide() {
+  document.getElementById('dialogs').innerHTML = WS.map(groupHTML).join('');
+  document.getElementById('native').innerHTML = nativeHTML();
+}
+
+function renderTabs(ws) {
+  const old = ui.sel.old !== null ? ws.archive[ui.sel.old] : null;
+  const tabs = ws.agents.slice().sort((a, b) => a.tab - b.tab).map((a) => {
+    const on = ui.sel.id === a.id;
+    return `<div class="tab${on ? ' on' : ''}" data-act="agent" data-ws="${ws.id}" data-id="${a.id}">${pvHTML(iconOf(a), a.st)}<span class="tt">${esc(a.title)}</span>${on ? ICON.x : ''}</div>`;
+  });
+  ws.extra.forEach((x, i) => {
+    const on = ui.sel.extra === i;
+    tabs.push(`<div class="tab${on ? ' on' : ''}" data-act="extra" data-ws="${ws.id}" data-i="${i}">${pvHTML('globe', 'done')}<span class="tt">${esc(x.title)}</span>${on ? ICON.x : ''}</div>`);
+  });
+  if (old) tabs.push(`<div class="tab on">${pvHTML(old.prov, 'done')}<span class="tt">${esc(old.title)}</span>${ICON.x}</div>`);
+  tabs.push(`<div class="tab plus" data-act="menu-tabs" data-ws="${ws.id}" title="Новая вкладка">${ICON.plus}</div>`);
+  document.getElementById('tabs').innerHTML = tabs.join('');
+}
+
+function skeleton(n) {
+  const W = [78, 63, 70, 52, 47, 66, 82, 57, 74, 61, 69, 55];
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    const w = W[i % W.length];
+    if (i % 4 === 0) h += `<div class="sk me"><i style="width:${30 + (w % 20)}%"></i></div>`;
+    else if (i % 4 === 2) h += `<div class="sk tool"><b></b><i style="width:${w - 22}%"></i></div>`;
+    else h += `<div class="sk${i === n - 1 ? ' last' : ''}"><i style="width:${w}%"></i><i style="width:${w - 14}%"></i><i style="width:${w - 6}%"></i></div>`;
+  }
+  return h;
+}
+
+function headHTML(title, ws, a) {
+  const sub = a ? STATUS_TEXT[a.st] : 'Архивный диалог';
+  const mark = a && a.st !== 'done' ? miniHTML(a.st) : '';
+  return `<div class="hello"><div class="h-ttl">${esc(title)}</div><div class="h-sub" id="hsub">${mark}${sub} · ${esc(ws.name)}</div></div>`;
+}
+
+function tailHTML(ws, a) {
+  if (a.st === 'run') return `<div class="think">${miniHTML('run')}Думает...</div>`;
+  if (a.st !== 'need') return '';
+  const q = a.q || 'Продолжать?';
+  const opts = a.opts || ['Да', 'Нет'];
+  const btns = opts.map((o) => `<button class="btn sm" data-act="answer" data-ws="${ws.id}" data-id="${a.id}">${esc(o)}</button>`).join('');
+  return `<div class="ask"><div class="ask-h">${miniHTML('need')}Агент ждёт ответа</div><div class="ask-q">${esc(q)}</div><div class="ask-o">${btns}</div></div>`;
+}
+
+let chatKey = '';
+function chatAtBottom() { return chatEl.scrollTop + chatEl.clientHeight >= chatEl.scrollHeight - 6; }
+
+function renderChat(ws) {
+  const s = ui.sel;
+  const composer = document.getElementById('composer');
+  pillEl.classList.remove('show');
+  composer.style.display = '';
+  if (s.old !== null) {
+    chatEl.innerHTML = headHTML(ws.archive[s.old].title, ws, null) + skeleton(10);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return;
+  }
+  if (s.extra !== null) {
+    composer.style.display = 'none';
+    chatEl.innerHTML = `<div class="browser"><div class="addr">${ICON.globe}<span>Введите адрес</span></div><div class="bpage">Новая вкладка браузера</div></div>`;
+    return;
+  }
+  const a = s.id ? findAgent(ws.id, s.id) : null;
+  if (!a) {
+    composer.style.display = 'none';
+    chatEl.innerHTML = `<div class="draft"><div class="draft-t">${esc(ws.name)}</div><div class="draft-s">Пространство создано. Агента, терминал или браузер открывает + у названия группы.</div></div>`;
+    return;
+  }
+  if (a.kind === 'term') {
+    composer.style.display = 'none';
+    const cmd = a.icon === 'claude' ? 'claude' : '';
+    chatEl.innerHTML = `<div class="term"><div>Last login: Mon Oct 20 12:23 on ttys004</div><div>agmazin@MacBook-Air-Aleksandr public % ${cmd}<span class="cur"></span></div></div>`;
+    return;
+  }
+  if (a.draft) {
+    composer.style.display = 'none';
+    chatEl.innerHTML = `<div class="draft"><div class="draft-t">Новый агент</div><div class="draft-s">Первое сообщение для примера. После ответа агента плагин сожмёт название вкладки до 1-2 слов.</div><textarea class="inp ta" id="draft-text">Посмотри, почему с сайта экоизыскания перестали приходить заявки в amoCRM, и почини</textarea><div class="mrow"><button class="btn sm" data-act="draft-send" data-ws="${ws.id}" data-id="${a.id}">Отправить</button></div></div>`;
+    return;
+  }
+  chatEl.innerHTML = headHTML(a.title, ws, a) + skeleton(14) + `<div id="chat-tail">${tailHTML(ws, a)}</div>`;
+  if (a.st === 'att') {
+    chatEl.scrollTop = 0;
+    pillEl.classList.add('show');
+  } else {
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+}
+
+function keyOf() {
+  const a = ui.sel.id ? findAgent(ui.sel.ws, ui.sel.id) : null;
+  return [ui.sel.ws, ui.sel.id, ui.sel.old, ui.sel.extra, a ? a.st : ''].join('|');
+}
+
+function renderMain() {
+  const ws = findWs(ui.sel.ws);
+  document.getElementById('ws-title').textContent = ws.name;
+  renderTabs(ws);
+  const key = keyOf();
+  if (key !== chatKey) {
+    chatKey = key;
+    renderChat(ws);
+  }
+}
+
+function render() {
+  if (!findWs(ui.sel.ws)) select('eco', { id: 'e1' });
+  renderSide();
+  renderMain();
+  ui.justOpened = null;
+  ui.flash = null;
+}
+
+function markSeen(a) {
+  a.st = 'done';
+  pillEl.classList.remove('show');
+  const hsub = document.getElementById('hsub');
+  if (hsub) hsub.innerHTML = `${STATUS_TEXT.done} · ${esc(findWs(ui.sel.ws).name)}`;
+  chatKey = keyOf();
+  renderSide();
+  renderTabs(findWs(ui.sel.ws));
+}
+
+chatEl.addEventListener('scroll', () => {
+  if (!ui.sel.id) return;
+  const a = findAgent(ui.sel.ws, ui.sel.id);
+  if (a && a.st === 'att' && chatAtBottom()) markSeen(a);
+});
+
+function finishTurn(wsId, a) {
+  const looking = ui.sel.ws === wsId && ui.sel.id === a.id;
+  a.t = NOW + (++bump) * 1000;
+  ui.flash = a.id;
+  if (!looking) {
+    a.st = 'att';
+    render();
+    return;
+  }
+  const atBottom = chatAtBottom();
+  a.st = atBottom ? 'done' : 'att';
+  const tail = document.getElementById('chat-tail');
+  if (tail) tail.innerHTML = '';
+  const ht = chatEl.querySelector('.h-ttl');
+  if (ht) ht.textContent = a.title;
+  const hsub = document.getElementById('hsub');
+  if (hsub) hsub.innerHTML = `${a.st === 'att' ? miniHTML('att') : ''}${STATUS_TEXT[a.st]} · ${esc(findWs(wsId).name)}`;
+  if (!atBottom) pillEl.classList.add('show');
+  chatKey = keyOf();
+  renderSide();
+  renderTabs(findWs(wsId));
+  ui.flash = null;
+}
+
+let toastTimer = null;
+function toast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+function groupMenuHTML(wsId) {
+  return `<div class="menu" id="menu">
+    <div class="mi" data-act="new-agent" data-ws="${wsId}">${ICON.pen}<span>Агент</span><span class="kbd">⇧⌘A</span></div>
+    <div class="mi" data-act="new-term" data-ws="${wsId}">${ICON.term}<span>Терминал</span><span class="kbd">⇧⌘T</span></div>
+    <div class="mi" data-act="new-browser" data-ws="${wsId}">${ICON.globe}<span>Браузер</span><span class="kbd">⇧⌘B</span></div>
+    <div class="msep"></div>
+    <div class="mlabel">Профили терминала</div>
+    <div class="mi" data-act="new-cc" data-ws="${wsId}">${ICON.claude}<span>Claude Code</span></div>
+    <div class="msep"></div>
+    <div class="mi" data-act="profiles"><span>Изменить профили</span></div>
+  </div>`;
+}
+
+function wsFormHTML() {
+  return `<div class="menu form" id="menu">
+    <div class="mlabel">Новое рабочее пространство</div>
+    <input class="inp" id="ws-name" placeholder="Название, например CTG" autocomplete="off">
+    <div class="mhint">Папка: AI OS (public), как у agmazin и ЭкоЭксперт</div>
+    <div class="mrow"><button class="btn sm" data-act="ws-create">Создать</button></div>
+  </div>`;
+}
+
+function openMenu(type, wsId, anchor) {
+  const layer = document.getElementById('menu-layer');
+  layer.innerHTML = type === 'ws' ? wsFormHTML() : groupMenuHTML(wsId);
+  const m = layer.firstElementChild;
+  const wr = win.getBoundingClientRect();
+  const ar = anchor.getBoundingClientRect();
+  let left = ar.left - wr.left - 4;
+  let top = ar.bottom - wr.top + 6;
+  if (left + m.offsetWidth > wr.width - 8) left = wr.width - 8 - m.offsetWidth;
+  if (top + m.offsetHeight > wr.height - 8) top = ar.top - wr.top - m.offsetHeight - 6;
+  m.style.left = left + 'px';
+  m.style.top = top + 'px';
+  ui.menu = { type, ws: wsId };
+  renderSide();
+  if (type === 'ws') document.getElementById('ws-name').focus();
+}
+
+function closeMenu() {
+  if (!ui.menu) return;
+  ui.menu = null;
+  document.getElementById('menu-layer').innerHTML = '';
+  renderSide();
+}
+
+function shortName(text) {
+  if (/заявк/i.test(text)) return 'Пропавшие заявки';
+  const words = text.replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter((w) => w.length > 3).slice(0, 2);
+  if (!words.length) return 'Новая задача';
+  const name = words.join(' ').toLowerCase();
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function addItem(wsId, base) {
+  const ws = findWs(wsId);
+  seq += 1;
+  const item = Object.assign({ id: 'n' + seq, prov: 'claude', st: 'done', kind: 'agent', t: NOW + (++bump) * 1000, order: -seq, tab: 100 + seq }, base);
+  ws.agents.push(item);
+  ui.open[wsId] = true;
+  select(wsId, { id: item.id });
+  ui.flash = item.id;
+  closeMenu();
+  render();
+}
+
+function createWorkspace() {
+  const input = document.getElementById('ws-name');
+  const name = (input && input.value.trim()) || 'Новое пространство';
+  seq += 1;
+  const id = 'w' + seq;
+  WS.push({ id, name, archiveCount: 0, agents: [], archive: [], extra: [] });
+  ui.open[id] = true;
+  ui.arch[id] = false;
+  ui.shown[id] = 10;
+  ui.justOpened = id;
+  select(id, {});
+  closeMenu();
+  render();
+}
+
+win.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  const inMenu = e.target.closest('#menu');
+  if (!el) {
+    if (!inMenu) closeMenu();
+    return;
+  }
+  const { act, ws, id, i } = el.dataset;
+  switch (act) {
+    case 'menu-group':
+    case 'menu-tabs':
+      if (ui.menu && ui.menu.type === 'group' && ui.menu.ws === ws) { closeMenu(); return; }
+      openMenu('group', ws, el);
+      return;
+    case 'menu-ws':
+      if (ui.menu && ui.menu.type === 'ws') { closeMenu(); return; }
+      openMenu('ws', null, el);
+      return;
+    case 'new-agent': addItem(ws, { title: 'Новый агент', draft: true }); return;
+    case 'new-term': addItem(ws, { title: 'Терминал', kind: 'term', icon: 'term' }); return;
+    case 'new-cc': addItem(ws, { title: 'Claude Code', kind: 'term', icon: 'claude' }); return;
+    case 'new-browser': {
+      const w = findWs(ws);
+      w.extra.push({ title: 'Новая вкладка' });
+      select(ws, { extra: w.extra.length - 1 });
+      closeMenu();
+      render();
+      toast('Вкладка браузера открылась справа. В списке её нет: Paseo не отдаёт плагинам список браузерных вкладок.');
+      return;
+    }
+    case 'profiles': closeMenu(); toast('Откроет настройки профилей терминала в Paseo.'); return;
+    case 'ws-create': createWorkspace(); return;
+    case 'draft-send': {
+      const a = findAgent(ws, id);
+      const text = (document.getElementById('draft-text').value || '').trim() || 'Новая задача';
+      a.draft = false;
+      a.title = text.slice(0, 60);
+      a.st = 'run';
+      a.t = NOW + (++bump) * 1000;
+      ui.flash = id;
+      render();
+      setTimeout(() => {
+        if (a.st !== 'run' || findAgent(ws, id) !== a) return;
+        a.title = shortName(text);
+        finishTurn(ws, a);
+      }, 2600);
+      return;
+    }
+    default: break;
+  }
+  closeMenu();
+  if (act === 'grp') {
+    ui.open[ws] = !ui.open[ws];
+    if (ui.open[ws]) ui.justOpened = ws;
+  } else if (act === 'arch') {
+    ui.arch[ws] = !ui.arch[ws];
+    if (ui.arch[ws]) ui.justOpened = ws + ':a';
+  } else if (act === 'more') {
+    ui.shown[ws] += 10;
+  } else if (act === 'all') {
+    toast('В плагине откроется отдельный экран со всем архивом пространства и поиском.');
+    return;
+  } else if (act === 'agent') {
+    select(ws, { id });
+  } else if (act === 'old') {
+    select(ws, { old: Number(i) });
+  } else if (act === 'extra') {
+    select(ws, { extra: Number(i) });
+  } else if (act === 'native') {
+    ui.native = !ui.native;
+  } else if (act === 'pill') {
+    chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: 'smooth' });
+    return;
+  } else if (act === 'answer') {
+    const a = findAgent(ws, id);
+    a.st = 'run';
+    a.t = NOW + (++bump) * 1000;
+    ui.flash = id;
+    render();
+    setTimeout(() => { if (a.st === 'run' && findAgent(ws, id) === a) finishTurn(ws, a); }, 2600);
+    return;
+  } else {
+    return;
+  }
+  render();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeMenu();
+  if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'ws-name') createWorkspace();
+});
+
+const STEPS = [
+  ['agmazin', 'a1', 'run'],
+  ['eco', 'e2', 'run'],
+  ['agmazin', 'a1', 'need'],
+  ['eco', 'e2', 'finish'],
+  ['eco', 'e6', 'finish'],
+  ['agmazin', 'a3', 'run'],
+  ['agmazin', 'a3', 'finish'],
+];
+let demoTimer = null;
+let step = 0;
+
+function tick() {
+  if (step >= STEPS.length) {
+    resetData();
+    step = 0;
+    chatKey = '';
+    render();
+    return;
+  }
+  const [wsId, id, st] = STEPS[step++];
+  const a = findAgent(wsId, id);
+  if (!a) return;
+  if (st === 'finish') {
+    finishTurn(wsId, a);
+    return;
+  }
+  a.st = st;
+  a.t = NOW + (++bump) * 1000;
+  ui.flash = id;
+  render();
+}
+
+document.getElementById('demo').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (demoTimer) {
+    clearInterval(demoTimer);
+    demoTimer = null;
+    btn.classList.remove('on');
+    btn.textContent = 'Оживить статусы';
+    resetData();
+    step = 0;
+    chatKey = '';
+    render();
+    return;
+  }
+  btn.classList.add('on');
+  btn.textContent = 'Остановить';
+  tick();
+  demoTimer = setInterval(tick, 2200);
+});
+
+render();
+</script>
+</body>
+</html>
