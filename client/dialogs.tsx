@@ -9,6 +9,7 @@ import {
 import { Modal, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import {
   useAgent,
+  useSettings,
   usePaseo,
   useRpc,
   type PluginSidebarItemProps,
@@ -17,10 +18,11 @@ import {
 } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoAgent } from "@getpaseo/client";
+import { displaySettings } from "../shared/settings";
 import { claimAction, preference, ROOT } from "../shared/contracts";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
-import { hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab } from "./web";
 import {
   AgentLine,
   ArchiveLine,
@@ -135,6 +137,9 @@ function PlusMenu(p: PluginPopoverProps & { workspaceId: string }) {
 }
 export function Dialogs(p: PluginSidebarItemProps) {
   const dimensions = useWindowDimensions();
+  const settings = useSettings(displaySettings);
+  const hideNative = settings.status === "ready" && !settings.values.showNativeWorkspaces && !p.layout.compact;
+  useEffect(() => hideNativeWorkspaces(hideNative), [hideNative]);
   const [popup, setPopup] = useState<{ Content: ComponentType<PluginPopoverProps>; anchor: MenuAnchor; width: number } | null>(null);
   const [popupHeight, setPopupHeight] = useState(220);
   const show = (Content: ComponentType<PluginPopoverProps>, anchor: MenuAnchor | undefined, width: number) => {

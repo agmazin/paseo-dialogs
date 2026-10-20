@@ -2,7 +2,9 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Dialogs, Destination, Archive } from "./client/dialogs";
 import { ReadMarker } from "./client/marker";
 import { markerSchema } from "./shared/contracts";
+import { DisplaySettings } from "./client/settings";
 export default function contribute(client: PluginClientContext) {
+  client.addSettingsScreen({ id: "display", title: "Диалоги", icon: "PanelsTopLeft", Component: DisplaySettings });
   client.addScreen({
     id: "navigate",
     title: "Диалоги",

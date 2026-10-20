@@ -119,3 +119,62 @@ export function menuAnchor(event: unknown): { x: number; y: number } | undefined
   const rect = (event as { currentTarget?: { getBoundingClientRect?: () => {left: number; top: number} } }).currentTarget?.getBoundingClientRect?.();
   return rect ? { x: rect.left, y: rect.top } : undefined;
 }
+
+interface SidebarElement {
+  parentElement: SidebarElement | null;
+  style: {
+    getPropertyValue(name: string): string;
+    getPropertyPriority(name: string): string;
+    setProperty(name: string, value: string, priority?: string): void;
+    removeProperty(name: string): void;
+  };
+  querySelector(selector: string): SidebarElement | null;
+  contains(node: SidebarElement): boolean;
+}
+
+// Fail open when native markers or their safe section boundary disappear.
+export function hideNativeWorkspaces(enabled: boolean) {
+  if (Platform.OS !== "web" || !enabled) return () => {};
+  const doc = document as unknown as {
+    body: SidebarElement;
+    querySelectorAll(selector: string): Iterable<SidebarElement>;
+  };
+  const hidden = new Map<SidebarElement, { value: string; priority: string }>();
+  const restore = (node: SidebarElement) => {
+    const previous = hidden.get(node);
+    if (!previous) return;
+    if (previous.value) node.style.setProperty("display", previous.value, previous.priority);
+    else node.style.removeProperty("display");
+    hidden.delete(node);
+  };
+  const reconcile = () => {
+    const targets = new Set<SidebarElement>();
+    for (const list of doc.querySelectorAll('[data-testid="sidebar-project-list"], #sidebar-project-list')) {
+      let section: SidebarElement | null = list;
+      for (let depth = 0; section && depth < 5; depth++, section = section.parentElement) {
+        if (section.querySelector('[data-testid="dialogs-block"], [data-testid="sidebar-footer"], [data-testid^="plugin-sidebar-"]')) break;
+        if (section.querySelector('[data-testid="sidebar-display-preferences-menu"]')) {
+          targets.add(section);
+          break;
+        }
+      }
+    }
+    for (const node of hidden.keys()) if (!targets.has(node)) restore(node);
+    for (const node of targets) {
+      if (!hidden.has(node)) hidden.set(node, {
+        value: node.style.getPropertyValue("display"),
+        priority: node.style.getPropertyPriority("display"),
+      });
+      if (node.style.getPropertyValue("display") !== "none" || node.style.getPropertyPriority("display") !== "important") {
+        node.style.setProperty("display", "none", "important");
+      }
+    }
+  };
+  const observer = new MutationObserver(reconcile);
+  observer.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-testid", "id", "style"] });
+  reconcile();
+  return () => {
+    observer.disconnect();
+    for (const node of hidden.keys()) restore(node);
+  };
+}
