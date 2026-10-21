@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import { View } from "react-native";
 import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { markRead } from "../shared/contracts";
+import { markRead, readState } from "../shared/contracts";
 import { observeTail } from "./web";
 export function ReadMarker({
   item,
 }: PluginTimelineItemProps<{ agentId: string; token: string }>) {
   const node = useRef<View>(null);
   const read = useRpc(markRead);
+  const getState = useRpc(readState);
   const qc = useQueryClient();
   useEffect(() => {
     let pending = false,
@@ -19,14 +20,17 @@ export function ReadMarker({
       void read(item.data)
         .then(() => {
           done = true;
-          void qc.invalidateQueries({ queryKey: ["dialogs"] });
+          // Only the unread markers changed: refresh the small state, not every agent.
+          void getState({})
+            .then((state) => qc.setQueriesData<{ state: typeof state }>({ queryKey: ["dialogs"] }, (old) => (old ? { ...old, state } : old)))
+            .catch(() => {});
         })
         .catch(() => {})
         .finally(() => {
           pending = false;
         });
     });
-  }, [read, qc, item.data.agentId, item.data.token]);
+  }, [read, getState, qc, item.data.agentId, item.data.token]);
   return (
     <View
       ref={node}

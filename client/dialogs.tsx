@@ -24,7 +24,7 @@ import { claimAction, preference, reorderGroups, moveDialog, ROOT } from "../sha
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
-import { agents, useData } from "./data";
+import { agents, setState, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
 import {
   palette,
@@ -220,9 +220,17 @@ export function Dialogs(p: PluginSidebarItemProps) {
     },
     [qc, p.host.id],
   );
+  // Folding is instant: the cache changes first, the daemon answers with the saved state.
   const pref = useMutation({
     mutationFn: save,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["dialogs", p.host.id] });
+      qc.setQueryData<typeof d.data>(["dialogs", p.host.id], old => old ? {
+        ...old, state: { ...old.state, [input.section]: { ...old.state[input.section], [input.id]: input.value } },
+      } : old);
+    },
+    onSuccess: (state) => setState(qc, p.host.id, state),
+    onError: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
   const orderMutation = useMutation({
     mutationFn: reorder,
@@ -232,7 +240,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
         ...old, state: { ...old.state, groupOrder: moveGroup(old.state.groupOrder, move.id, move.beforeId) },
       } : old);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
+    onSuccess: (state) => setState(qc, p.host.id, state),
+    onError: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
   const openAgent = (id: string) => {
     setSelected(id);
