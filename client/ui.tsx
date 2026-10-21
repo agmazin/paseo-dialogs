@@ -60,14 +60,18 @@ function blend(fg: string, bg: string, amount: number) {
         .join("")}`
     : fg;
 }
+// Every surface is derived from the host theme: Paseo's dark grays are slightly
+// green, so neutral mockup grays read as dirty red next to native chrome.
 export function palette(theme: Theme) {
   const c = theme.colors;
   const dark = parseInt(c.surface0.slice(1, 3), 16) < 128;
-  const bg = dark ? "#181818" : c.surface0;
+  const bg = c.surface0;
+  const menu = c.surface1;
   return {
+    dark,
     bg,
-    hover: dark ? "#222222" : c.surface1,
-    active: dark ? "#2b2b2b" : c.surface2,
+    hover: c.surface1,
+    active: c.surface2,
     fg: c.foreground,
     muted: c.foregroundMuted,
     dim: blend(c.foregroundMuted, bg, 0.613),
@@ -76,9 +80,12 @@ export function palette(theme: Theme) {
     ok: dark ? "#35c264" : "#299f51",
     warn: dark ? "#db932e" : "#b37824",
     bad: dark ? "#f7796d" : "#f12e2f",
-    menu: dark ? "#1f1f1f" : c.surface1,
-    line: dark ? "#333333" : c.border,
-    key: dark ? "#2c2c2c" : c.surface2,
+    menu,
+    line: dark ? blend(c.foreground, menu, 0.075) : c.border,
+    key: c.surface2,
+    input: dark ? blend("#000000", bg, 0.12) : bg,
+    inputLine: dark ? blend(c.foreground, menu, 0.11) : c.border,
+    button: c.surface2,
   };
 }
 export function Label({
@@ -800,12 +807,8 @@ export function WorkspaceForm({
           fontSize: 14,
           lineHeight: 18.9,
           color: p.fg,
-          backgroundColor: p.bg === "#181818" ? "#171717" : p.bg,
-          borderColor: focused
-            ? p.run
-            : p.bg === "#181818"
-              ? "#3a3a3a"
-              : theme.colors.border,
+          backgroundColor: p.input,
+          borderColor: focused ? p.run : p.inputLine,
           borderWidth: 1,
           borderRadius: 8,
           paddingVertical: 8,
@@ -836,7 +839,7 @@ export function WorkspaceForm({
             paddingHorizontal: 12,
             borderWidth: 1,
             borderColor: p.line,
-            backgroundColor: p.bg === "#181818" ? "#232323" : p.hover,
+            backgroundColor: p.button,
             borderRadius: 9,
             opacity: !name.trim() || pending ? 0.5 : 1,
           }}
