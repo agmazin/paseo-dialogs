@@ -143,7 +143,7 @@ function PlusMenu(p: PluginPopoverProps & { workspaceId: string }) {
 export function Dialogs(p: PluginSidebarItemProps) {
   const dimensions = useWindowDimensions();
   const settings = useSettings(displaySettings);
-  const hideNative = settings.status === "ready" && !settings.values.showNativeWorkspaces && !p.layout.compact;
+  const hideNative = settings.status === "ready" && !settings.values.showNativeWorkspaces;
   useEffect(() => hideNativeWorkspaces(hideNative), [hideNative]);
   const [popup, setPopup] = useState<{ Content: ComponentType<PluginPopoverProps>; anchor: MenuAnchor; width: number } | null>(null);
   const [popupHeight, setPopupHeight] = useState(220);
