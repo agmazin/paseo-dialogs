@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 // DOM is restricted to this module; RN clients acknowledge a mounted tail marker.
 declare const document: {
   visibilityState: string;
@@ -34,7 +34,11 @@ export function observeTail(node: unknown, read: () => void) {
   };
 }
 
-declare const window: { paseoDesktop?: unknown; location: { pathname: string; search: string } };
+declare const window: {
+  paseoDesktop?: { dialog?: { ask?: (message: string, options: { title: string; okLabel: string; cancelLabel: string; kind: string }) => Promise<boolean> } };
+  location: { pathname: string; search: string };
+  confirm?: (message: string) => boolean;
+};
 export function hasBrowser() {
   return (
     Platform.OS === "web" &&
@@ -391,4 +395,37 @@ export function bindGroupDrag(node: unknown, onMove: (id: string, beforeId: stri
     win.removeEventListener("blur", cancel);
     if (!swallowClick) clearClick();
   };
+}
+
+// Same backends as the host confirmDialog: Alert on phones, Electron ask, browser confirm.
+export async function confirmDestructive(input: { title: string; message: string; confirm: string; cancel: string }) {
+  if (Platform.OS !== "web") return new Promise<boolean>(resolve => Alert.alert(input.title, input.message, [
+    { text: input.cancel, style: "cancel", onPress: () => resolve(false) },
+    { text: input.confirm, style: "destructive", onPress: () => resolve(true) },
+  ], { cancelable: true, onDismiss: () => resolve(false) }));
+  const ask = window.paseoDesktop?.dialog?.ask;
+  if (typeof ask === "function") return ask(input.message, {
+    title: input.title, okLabel: input.confirm, cancelLabel: input.cancel, kind: "warning",
+  });
+  return !!window.confirm?.(`${input.title}\n\n${input.message}`);
+}
+
+// Right click on a group row opens the same menu as its "..." button.
+export function bindGroupMenu(node: unknown, onMenu: (id: string, anchor: { x: number; y: number }) => void) {
+  if (Platform.OS !== "web" || !node) return () => {};
+  const root = node as DragElement;
+  const open = (e: DragEvent) => {
+    const handle = e.target.closest('[data-testid="dialogs-group-handle"]');
+    const id = handle?.parentElement?.getAttribute("data-testid")?.slice("dialogs-group-".length);
+    if (!handle || !root.contains(handle) || !id) return;
+    e.preventDefault();
+    onMenu(id, { x: e.clientX, y: e.clientY - 30 });
+  };
+  root.addEventListener("contextmenu", open);
+  return () => root.removeEventListener("contextmenu", open);
+}
+
+export function isWorkspaceRouteOpen(id: string) {
+  return Platform.OS === "web" && typeof window !== "undefined" &&
+    window.location.pathname.split("/").includes(id);
 }

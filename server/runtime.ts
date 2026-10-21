@@ -106,6 +106,8 @@ export function register(server: PluginServerContext) {
   const offWorkspaceArchived = server.on("workspace.archived", async ({ workspace }) => orderTask(async () => {
     await ready;
     state.groupOrder = state.groupOrder.filter(id => id !== workspace.id);
+    delete state.collapsed[workspace.id];
+    delete state.archives[workspace.id];
     await save();
   }));
   server.handle(moveDialog, async (input, { paseo }) => {

@@ -16,6 +16,7 @@ import {
   type PluginScreenProps,
   type PluginPopoverProps,
 } from "@getpaseo/plugin/client";
+import { Modal as HostModal, TextInput as HostTextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoAgent } from "@getpaseo/client";
 import { displaySettings } from "../shared/settings";
@@ -24,13 +25,14 @@ import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
 import {
   palette,
   AgentLine,
   ArchiveLine,
   Block,
   GroupLine,
+  GroupMenuView,
   Label,
   MenuView,
   MoreLine,
@@ -140,6 +142,52 @@ function PlusMenu(p: PluginPopoverProps & { workspaceId: string }) {
     />
   );
 }
+// Mirrors the host rename sheet: one field, Cancel and Rename, inline error.
+function RenameGroup({ theme, name, onSubmit, onClose }: {
+  theme: PluginSidebarItemProps["theme"];
+  name: string;
+  onSubmit: (title: string) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const p = palette(theme);
+  const submit = async () => {
+    if (pending || draft === name) return;
+    if (!draft.trim()) { setError("Требуется имя"); return; }
+    setPending(true);
+    try { await onSubmit(draft.trim()); onClose(); }
+    catch (e) { setError(e instanceof Error && e.message ? e.message : "Не удалось сохранить"); }
+    finally { setPending(false); }
+  };
+  const button = (label: string, onPress: () => void, primary: boolean, disabled: boolean) => (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress}
+      style={{ flex: 1, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center",
+        opacity: disabled ? 0.5 : 1, backgroundColor: primary ? theme.colors.foreground : "transparent",
+        borderWidth: primary ? 0 : 1, borderColor: theme.colors.border }}>
+      <Label color={primary ? theme.colors.surface0 : p.fg} size={13} weight="500">{label}</Label>
+    </Pressable>
+  );
+  return (
+    <HostModal title="Переименовать рабочее пространство" open onOpenChange={open => { if (!open && !pending) onClose(); }}>
+      <HostModal.Content>
+        <View testID="dialogs-rename-group" style={{ gap: 12 }}>
+          <HostTextInput accessibilityLabel="Название группы" value={draft} placeholder={name} autoFocus
+            editable={!pending} onChangeText={v => { setDraft(v); setError(""); }} onSubmitEditing={() => void submit()}
+            style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border,
+              backgroundColor: theme.colors.surface0, color: theme.colors.foreground, fontSize: 14 }} />
+          {!!error && <Label color={theme.colors.statusDanger} size={14}>{error}</Label>}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {button("Отмена", onClose, false, pending)}
+            {button(pending ? "Сохранение..." : "Переименовать", () => void submit(), true,
+              pending || draft === name || !draft.trim())}
+          </View>
+        </View>
+      </HostModal.Content>
+    </HostModal>
+  );
+}
 export function Dialogs(p: PluginSidebarItemProps) {
   const dimensions = useWindowDimensions();
   const settings = useSettings(displaySettings);
@@ -156,12 +204,15 @@ export function Dialogs(p: PluginSidebarItemProps) {
     qc = useQueryClient(),
     save = useRpc(preference),
     reorder = useRpc(reorderGroups),
-    move = useRpc(moveDialog);
+    move = useRpc(moveDialog),
+    toast = useToast();
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [moveError, setMoveError] = useState("");
   const [limits, setLimits] = useState<Record<string, number>>({}),
     [selected, setSelected] = useState<string | null>(null),
     [activity, setActivity] = useState<Record<string, string>>({});
   useEffect(() => observeSelectedTab(setSelected), []);
+  const menuFor = useRef<(id: string, anchor?: MenuAnchor) => void>(() => {});
   const onActivity = useCallback(
     (id: string, time: string) => {
       setActivity((old) => (old[id] === time ? old : { ...old, [id]: time }));
@@ -222,8 +273,49 @@ export function Dialogs(p: PluginSidebarItemProps) {
       a,
       Object.hasOwn(state.unread, a.id) ? !!state.unread[a.id] : undefined,
     );
+  // Host behavior: archive the workspace with its agents and terminals, toast the daemon error.
+  const removeGroup = async (id: string, name: string, dialogs: number, terminalCount: number) => {
+    const message = [
+      dialogs ? `Диалогов в группе: ${dialogs}. Они уйдут в архив вместе с группой и останутся в Истории Paseo.` : "Группа пуста.",
+      terminalCount ? `Терминалы группы будут закрыты: ${terminalCount}.` : "",
+      "Файлы на диске не будут изменены.",
+    ].filter(Boolean).join("\n\n");
+    if (!await confirmDestructive({ title: `Удалить группу "${name}"?`, message, confirm: "Удалить", cancel: "Отмена" })) return;
+    // Like the host, leave the workspace before it is archived.
+    const next = groupOrder.find(g => g !== id);
+    if (next && isWorkspaceRouteOpen(id)) p.openScreen({ screenId: "navigate", params: { workspaceId: next } });
+    await qc.cancelQueries({ queryKey: ["dialogs", p.host.id] });
+    qc.setQueryData<typeof d.data>(["dialogs", p.host.id], old => old ? {
+      ...old, workspaces: old.workspaces.filter(w => w.id !== id),
+      state: { ...old.state, groupOrder: old.state.groupOrder.filter(g => g !== id) },
+    } : old);
+    try {
+      const result = await d.paseo.workspaces.ref(id).archive();
+      if (result.error) throw new Error(result.error);
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "Не удалось архивировать рабочее пространство");
+    } finally {
+      await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+    }
+  };
+  menuFor.current = (id, anchor) => {
+    const w = workspaceById.get(id);
+    if (!w) return;
+    const dialogs = all.filter(a => a.workspaceId === id).length,
+      terminalCount = terminals.filter(t => t.workspaceId === id).length;
+    show(props => (
+      <GroupMenuView theme={props.theme}
+        onRename={() => { props.close(); setRenaming({ id, name: w.name }); }}
+        onDelete={() => { props.close(); void removeGroup(id, w.name, dialogs, terminalCount); }} />
+    ), anchor, 260);
+  };
   return (
     <>
+    {renaming && <RenameGroup theme={p.theme} name={renaming.name} onClose={() => setRenaming(null)}
+      onSubmit={async title => {
+        await d.paseo.workspaces.ref(renaming.id).setTitle(title);
+        await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+      }} />}
     {popup && <Modal transparent visible animationType="none" onRequestClose={closePopup}>
       <Pressable accessibilityLabel="Закрыть меню" onPress={closePopup} style={{ position: "absolute", inset: 0 }} />
       <View onLayout={e => setPopupHeight(e.nativeEvent.layout.height)} style={{ position: "absolute",
@@ -262,6 +354,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
           if (a?.workspaceId) transferMutation.mutate({ agentId, sourceId: a.workspaceId, targetId,
             open: selected === agentId || hasOpenAgentTab(agentId) });
         }}
+        onMenu={(id, anchor) => menuFor.current(id, anchor)}
         onMove={(id, beforeId) => orderMutation.mutate({ id, beforeId })}>
       {groupOrder.map(id => workspaceById.get(id)!).map((w) => {
         const active = all.filter(
@@ -306,6 +399,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
               onPress={() =>
                 pref.mutate({ section: "collapsed", id: w.id, value: !folded })
               }
+              onMenu={(anchor) => menuFor.current(w.id, anchor)}
               onAdd={(anchor) => show((props) => (
                   <PlusMenu {...props} workspaceId={w.id} />
                 ), anchor, 250)}

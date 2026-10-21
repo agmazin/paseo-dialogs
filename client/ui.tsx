@@ -365,6 +365,7 @@ export function GroupLine({
   counts = {},
   onPress,
   onAdd,
+  onMenu,
   compact = false,
 }: {
   theme: Theme;
@@ -374,6 +375,7 @@ export function GroupLine({
   counts?: Partial<Record<Status, number>>;
   onPress: () => void;
   onAdd: (anchor?: MenuAnchor) => void;
+  onMenu: (anchor?: MenuAnchor) => void;
   compact?: boolean;
 }) {
   const p = palette(theme);
@@ -436,6 +438,27 @@ export function GroupLine({
               <Icon name="Plus" size={15} color={p.muted} />
             </Pressable>
           )}
+          <Pressable
+            accessibilityRole="button"
+            testID="dialogs-no-drag"
+            accessibilityLabel={`Действия группы ${name}`}
+            onPress={(e) => {
+              e.stopPropagation();
+              onMenu(anchor(e));
+            }}
+            style={{
+              width: 24,
+              height: 24,
+              display: hover || compact ? "flex" : "none",
+              marginLeft: -4,
+              marginRight: -6,
+              borderRadius: 6,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name="MoreVertical" size={14} color={p.muted} />
+          </Pressable>
         </>
       )}
     </Row>
@@ -606,6 +629,33 @@ export function MenuLine({
         </View>
       )}
     </Pressable>
+  );
+}
+export function GroupMenuView({
+  theme,
+  onRename,
+  onDelete,
+}: {
+  theme: Theme;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const p = palette(theme);
+  return (
+    <View
+      testID="dialogs-group-menu"
+      style={{
+        width: 260,
+        padding: 6,
+        backgroundColor: p.menu,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: p.line,
+      }}
+    >
+      <MenuLine theme={theme} label="Переименовать" icon="Pencil" onPress={onRename} />
+      <MenuLine theme={theme} label="Удалить группу" icon="Archive" onPress={onDelete} />
+    </View>
   );
 }
 export function MenuView({

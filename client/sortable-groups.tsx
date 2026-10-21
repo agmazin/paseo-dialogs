@@ -1,11 +1,12 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { View } from "react-native";
-import { bindGroupDrag, bindDialogDrag } from "./web";
+import { bindGroupDrag, bindDialogDrag, bindGroupMenu } from "./web";
 
-export function SortableGroups({ order, disabled, onMove, onDialogMove, canMoveDialog, hover, background, children }: {
+export function SortableGroups({ order, disabled, onMove, onMenu, onDialogMove, canMoveDialog, hover, background, children }: {
   order: string[];
   disabled: boolean;
   onMove: (id: string, beforeId: string | null) => void;
+  onMenu: (id: string, anchor: { x: number; y: number }) => void;
   onDialogMove: (agentId: string, targetId: string) => void;
   canMoveDialog: (agentId: string) => boolean;
   hover: string;
@@ -15,6 +16,9 @@ export function SortableGroups({ order, disabled, onMove, onDialogMove, canMoveD
   const root = useRef<View>(null);
   const callback = useRef(onMove);
   callback.current = onMove;
+  const menu = useRef(onMenu);
+  menu.current = onMenu;
+  useEffect(() => bindGroupMenu(root.current, (id, anchor) => menu.current(id, anchor)), []);
   const dialogs = useRef({ onDialogMove, canMoveDialog });
   dialogs.current = { onDialogMove, canMoveDialog };
   const key = JSON.stringify(order);
