@@ -25,7 +25,7 @@ import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
 import { agents, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openPinnedAgent } from "./web";
 import {
   palette,
   AgentLine,
@@ -234,8 +234,10 @@ export function Dialogs(p: PluginSidebarItemProps) {
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
-  const openAgent = (id: string) => {
+  // An archived agent is outside the host's live list; open it pinned in its workspace like History.
+  const openAgent = (id: string, archivedIn?: string | null) => {
     setSelected(id);
+    if (archivedIn && openPinnedAgent(p.host.id, archivedIn, id)) return;
     p.openScreen({ screenId: "navigate", params: { agentId: id } });
   };
   const transferMutation = useMutation({
@@ -384,7 +386,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                 : undefined
             }
             selected={selected === a.id}
-            onPress={() => openAgent(a.id)}
+            onPress={() => openAgent(a.id, a.archivedAt ? a.workspaceId : null)}
           />
         );
         return (
@@ -637,7 +639,10 @@ export function Archive({
             agent={a}
             time={times[a.id]}
             theme={theme}
-            onPress={() => navigation?.openAgent({ agentId: a.id })}
+            onPress={() => {
+              if (!a.workspaceId || !openPinnedAgent(host.id, a.workspaceId, a.id))
+                navigation?.openAgent({ agentId: a.id });
+            }}
           />
         ))}
       </ScrollView>

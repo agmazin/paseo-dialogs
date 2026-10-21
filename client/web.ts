@@ -38,7 +38,23 @@ declare const window: {
   paseoDesktop?: { dialog?: { ask?: (message: string, options: { title: string; okLabel: string; cancelLabel: string; kind: string }) => Promise<boolean> } };
   location: { pathname: string; search: string };
   confirm?: (message: string) => boolean;
+  history: { state: unknown; pushState(state: unknown, title: string, url: string): void };
+  dispatchEvent(event: unknown): boolean;
 };
+declare const PopStateEvent: new (type: string, init: { state: unknown }) => unknown;
+
+// Paseo 0.12 pins an archived agent as a workspace tab only through the workspace route's
+// open intent, as its History does; plugin navigation.openAgent cannot pin and lands on
+// another tab. Same-document navigation via the router's popstate handler. Returns false
+// off web or for unexpected ids, so callers keep the documented fallback.
+export function openPinnedAgent(serverId: string, workspaceId: string, agentId: string) {
+  if (Platform.OS !== "web" || typeof window === "undefined" || typeof PopStateEvent === "undefined") return false;
+  if (![serverId, workspaceId, agentId].every((id) => /^[A-Za-z0-9._~-]+$/.test(id))) return false;
+  const url = `/h/${serverId}/workspace/${workspaceId}?open=${encodeURIComponent(`agent:${agentId}`)}`;
+  window.history.pushState(window.history.state, "", url);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+  return true;
+}
 export function hasBrowser() {
   return (
     Platform.OS === "web" &&
