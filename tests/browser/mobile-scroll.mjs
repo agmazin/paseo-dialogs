@@ -1,0 +1,11 @@
+import { open } from './lib.mjs';
+const { b, p } = await open(390, 700);
+await p.goto('http://127.0.0.1:6786'); await p.waitForTimeout(4000);
+await p.getByLabel('Открыть меню').click(); await p.waitForTimeout(1500);
+const info = () => p.evaluate(() => { const blk = document.querySelector('[data-testid="dialogs-block"]'); const sc = [...blk.querySelectorAll('div')].find(n => n.scrollHeight > n.clientHeight + 5 && getComputedStyle(n).overflowY !== 'visible'); return sc ? { client: sc.clientHeight, scroll: sc.scrollHeight, top: sc.scrollTop } : 'no scroller'; });
+console.log('before', JSON.stringify(await info()));
+const box = await p.getByTestId('dialogs-block').boundingBox();
+await p.mouse.move(box.x + 100, box.y + box.height / 2); await p.mouse.wheel(0, 400); await p.waitForTimeout(600);
+console.log('after wheel', JSON.stringify(await info()));
+await p.screenshot({ path: '/tmp/kbt/sc1.png' });
+await b.close();

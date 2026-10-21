@@ -334,8 +334,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
         <popup.Content {...p} close={closePopup} openScreen={input => { closePopup(); p.openScreen(input); }} />
       </View>
     </Modal>}
-    <Block theme={p.theme} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
-      {all.map((a) => (
+    <Block theme={p.theme} compact={p.layout.compact} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
+      {all.filter((a) => !a.archivedAt).map((a) => (
         <Activity key={a.id} id={a.id} onActivity={onActivity} />
       ))}
       {pref.isError && (

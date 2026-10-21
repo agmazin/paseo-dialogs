@@ -3,6 +3,8 @@ import {
   Animated,
   Easing,
   Image,
+  Platform,
+  useWindowDimensions,
   Pressable,
   Text,
   TextInput,
@@ -10,7 +12,7 @@ import {
   type ViewStyle,
   type GestureResponderEvent,
 } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { providerSvg, menuAnchor } from "./web";
 import { providerIcons } from "./icons";
@@ -526,12 +528,24 @@ export function Block({
   theme,
   children,
   onAdd,
+  compact = false,
 }: {
   theme: Theme;
   children: ReactNode;
   onAdd: (anchor?: MenuAnchor) => void;
+  compact?: boolean;
 }) {
   const p = palette(theme);
+  // Phone drawer: plugin header items are not scrolled by the host, and the native
+  // Workspaces list cannot be hidden there, so the block scrolls on its own.
+  const { height } = useWindowDimensions();
+  const body = compact ? (
+    <ScrollView nestedScrollEnabled style={{ maxHeight: Math.round(height * (Platform.OS === "web" ? 0.7 : 0.55)) }}>
+      {children}
+    </ScrollView>
+  ) : (
+    children
+  );
   return (
     <View
       testID="dialogs-block"
@@ -575,7 +589,7 @@ export function Block({
           <Icon name="Plus" size={15} color={p.dim} />
         </Pressable>
       </View>
-      {children}
+      {body}
     </View>
   );
 }
