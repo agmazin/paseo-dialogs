@@ -6,6 +6,9 @@ import {
   validTitle,
   topLevel,
   activityTime,
+  runningSubagent,
+  runningByParent,
+  atRest,
 } from "../shared/model.ts";
 test("permissions beat errors, errors beat running, own read state beats host focus", () => {
   assert.equal(
@@ -65,4 +68,23 @@ test("time labels cross local date boundaries", () => {
     activityTime(new Date(2026, 8, 28, 13).toISOString(), now),
     "28 сен",
   );
+});
+
+test("only running, unarchived subagents hang under their parent", () => {
+  const label = { "paseo.parent-agent-id": "p1" };
+  assert.equal(runningSubagent({ status: "running", labels: label }), true);
+  assert.equal(runningSubagent({ status: "running", parentAgentId: "p1" }), true);
+  assert.equal(runningSubagent({ status: "idle", parentAgentId: "p1" }), false);
+  assert.equal(runningSubagent({ status: "running", parentAgentId: "p1", archivedAt: "2026-10-22" }), false);
+  assert.equal(runningSubagent({ status: "running" }), false);
+  const kids = runningByParent([
+    { id: "a", status: "running", parentAgentId: "p1" },
+    { id: "b", status: "idle", parentAgentId: "p1" },
+    { id: "c", status: "running", parentAgentId: "p2" },
+    { id: "d", status: "running", parentAgentId: "p1" },
+    { id: "p1", status: "idle", parentAgentId: null },
+  ]);
+  assert.deepEqual([...kids.keys()], ["p1", "p2"]);
+  assert.deepEqual(kids.get("p1")!.map((k) => k.id), ["a", "d"]);
+  assert.deepEqual(["done", "attention", "running", "needs_input", "failed"].map(atRest), [true, true, false, false, false]);
 });

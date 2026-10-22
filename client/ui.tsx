@@ -14,8 +14,9 @@ import {
 } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
-import { providerSvg, menuAnchor, observeSidebarHeight } from "./web";
+import { providerSvg, menuAnchor, observeSidebarHeight, setHoverTitle } from "./web";
 import { providerIcons } from "./icons";
+import { atRest } from "../shared/model";
 export type MenuAnchor = { x: number; y: number };
 function anchor(e: GestureResponderEvent): MenuAnchor | undefined { return menuAnchor(e); }
 export type Theme = PluginSidebarItemProps["theme"];
@@ -262,6 +263,71 @@ export function Badge({
     </View>
   );
 }
+// One running-subagent circle: 5px dot, 10px spinner, its own cut. The parent's pair and every
+// subagent row draw this component; the pair shares one spin value, so both turn in phase.
+const runSoft = "rgba(92,170,246,.2)";
+function useSpin() {
+  const spin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: false }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [spin]);
+  return spin;
+}
+const around = (d: number) => ({ position: "absolute" as const, top: -d, bottom: -d, left: -d, right: -d, borderRadius: 50 });
+function Mini({ theme, cut, spin }: { theme: Theme; cut: string; spin: Animated.Value }) {
+  const p = palette(theme);
+  return (
+    <View style={{ width: 5, height: 5 }}>
+      <View style={{ ...around(2.5), backgroundColor: cut }} />
+      <View style={{ ...around(0), backgroundColor: p.run }} />
+      <Animated.View
+        style={{
+          ...around(2.5),
+          borderWidth: 1.2,
+          borderColor: runSoft,
+          borderTopColor: p.run,
+          transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
+        }}
+      />
+    </View>
+  );
+}
+// "pair": parent at rest with working subagents, centers 12.5/15.5 and 19.5/15.5 of the icon.
+// "one": a subagent row, center 14.5/14.5 like Badge.
+export function SubagentBadge({ theme, cut, pair = false, onPress }: {
+  theme: Theme; cut?: string; pair?: boolean; onPress?: () => void;
+}) {
+  const spin = useSpin(),
+    c = cut ?? palette(theme).bg;
+  const style: ViewStyle = pair
+    ? { position: "absolute", right: -6, bottom: -2, flexDirection: "row", gap: 2 }
+    : { position: "absolute", right: -1, bottom: -1 };
+  const body = (
+    <>
+      <Mini theme={theme} cut={c} spin={spin} />
+      {pair && <Mini theme={theme} cut={c} spin={spin} />}
+    </>
+  );
+  return onPress ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Показать подагентов"
+      testID="dialogs-subagents-pair"
+      onPress={(e) => { e.stopPropagation(); onPress(); }}
+      style={style}
+    >
+      {body}
+    </Pressable>
+  ) : (
+    <View testID={pair ? "dialogs-subagents-pair" : "dialogs-subagent-dot"} accessibilityLabel={statusNames.running} style={style}>
+      {body}
+    </View>
+  );
+}
 export function Row({
   theme,
   label,
@@ -271,6 +337,7 @@ export function Row({
   selected = false,
   children,
   testID,
+  hint,
 }: {
   theme: Theme;
   label: string;
@@ -280,12 +347,16 @@ export function Row({
   selected?: boolean;
   children: ReactNode | ((cut: string, hover: boolean) => ReactNode);
   testID?: string;
+  hint?: string;
 }) {
   const [hover, setHover] = useState(false);
+  const node = useRef<View>(null);
+  useEffect(() => setHoverTitle(node.current, hint), [hint]);
   const p = palette(theme);
   const cut = selected ? p.active : hover ? p.hover : p.bg;
   return (
     <Pressable
+      ref={node}
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -316,6 +387,10 @@ export function AgentLine({
   provider,
   status = "done",
   old = false,
+  sub = false,
+  subagents = 0,
+  open = false,
+  onToggle,
   selected = false,
   onPress,
   testID,
@@ -326,30 +401,59 @@ export function AgentLine({
   provider: string;
   status?: Status;
   old?: boolean;
+  /** A running subagent under its parent: archive-row geometry, one small circle. */
+  sub?: boolean;
+  /** Running subagents of a dialog at rest: a pair of circles and a chevron. */
+  subagents?: number;
+  open?: boolean;
+  onToggle?: () => void;
   selected?: boolean;
   onPress: () => void;
   testID?: string;
 }) {
   const p = palette(theme);
+  const small = old || sub,
+    // Permission and error badges stay: they need the user more than working subagents do.
+    busy = subagents > 0 && atRest(status);
   return (
     <Row
       testID={testID}
       theme={theme}
       label={title}
-      height={old ? 28 : 30}
-      indent={old ? 44 : 30}
+      height={small ? 28 : 30}
+      indent={small ? 44 : 30}
       selected={selected}
       onPress={onPress}
+      hint={busy ? `Работают подагенты: ${subagents}` : undefined}
     >
       {(cut) => (
         <>
+          {busy && onToggle && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={open ? "Скрыть подагентов" : "Показать подагентов"}
+              accessibilityState={{ expanded: open }}
+              testID="dialogs-subagents-toggle"
+              onPress={(e) => { e.stopPropagation(); onToggle(); }}
+              style={{ position: "absolute", left: 12, top: 8, width: 14, height: 14,
+                alignItems: "center", justifyContent: "center" }}
+            >
+              <Icon name={open ? "ChevronDown" : "ChevronRight"} size={12} color={p.dim} />
+            </Pressable>
+          )}
           <View style={{ width: 16, height: 16, flexShrink: 0 }}>
             <ProviderIcon provider={provider} theme={theme} old={old} />
-            {!old && <Badge theme={theme} status={status} cut={cut} />}
+            {sub ? (
+              <SubagentBadge theme={theme} cut={cut} />
+            ) : busy ? (
+              <SubagentBadge theme={theme} cut={cut} pair onPress={onToggle} />
+            ) : (
+              !old && <Badge theme={theme} status={status} cut={cut} />
+            )}
           </View>
           <Label
-            color={old ? p.muted : p.title}
-            size={old ? 13 : 13.5}
+            color={small ? p.muted : p.title}
+            size={small ? 13 : 13.5}
             style={{ flex: 1 }}
           >
             {title}

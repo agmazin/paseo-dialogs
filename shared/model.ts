@@ -18,9 +18,31 @@ export function bucket(a: StatusAgent, unread?: boolean) {
 }
 export function topLevel(a: {
   parentAgentId?: string | null;
-  labels?: Record<string, string>;
+  labels?: Readonly<Record<string, string>>;
 }) {
   return !a.parentAgentId && !a.labels?.["paseo.parent-agent-id"];
+}
+// A subagent shown under its parent: only while it works and is not archived.
+export function runningSubagent(a: {
+  status: string;
+  archivedAt?: string | null;
+  parentAgentId?: string | null;
+  labels?: Readonly<Record<string, string>>;
+}) {
+  return !topLevel(a) && a.status === "running" && !a.archivedAt;
+}
+// A dialog whose own badge may give way to its working subagents (not permission or error).
+export function atRest(status: string) {
+  return status === "done" || status === "attention";
+}
+// Running subagents by parent id; parentAgentId of slim rows already includes the label.
+export function runningByParent<T extends { status: string; archivedAt?: string | null; parentAgentId?: string | null }>(
+  agents: readonly T[],
+) {
+  const kids = new Map<string, T[]>();
+  for (const a of agents)
+    if (a.parentAgentId && runningSubagent(a)) kids.set(a.parentAgentId, [...(kids.get(a.parentAgentId) ?? []), a]);
+  return kids;
 }
 export function autoTitle(title: string | null | undefined, prompt: string) {
   return !title?.trim() || title.trim() === prompt.trim().slice(0, 60);

@@ -23,7 +23,7 @@ import { displaySettings } from "../shared/settings";
 import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArchive, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
-import { activityTime, bucket } from "../shared/model";
+import { activityTime, atRest, bucket, runningByParent } from "../shared/model";
 import { agents, setState, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
 import {
@@ -61,6 +61,10 @@ function AgentRow({
   onPress,
   selected = false,
   time,
+  subagents,
+  open,
+  onToggle,
+  sub,
 }: {
   agent: PaseoAgent;
   theme: Theme;
@@ -68,6 +72,10 @@ function AgentRow({
   onPress: () => void;
   selected?: boolean;
   time?: string;
+  subagents?: number;
+  open?: boolean;
+  onToggle?: () => void;
+  sub?: boolean;
 }) {
   return (
     <View testID={`dialogs-agent-${agent.id}`}>
@@ -80,6 +88,10 @@ function AgentRow({
       provider={agent.provider}
       status={bucket(agent, unread)}
       old={!!agent.archivedAt}
+      sub={sub}
+      subagents={subagents}
+      open={open}
+      onToggle={onToggle}
       selected={selected}
       onPress={onPress}
     />
@@ -210,7 +222,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const [moveError, setMoveError] = useState("");
   const [limits, setLimits] = useState<Record<string, number>>({}),
     [selected, setSelected] = useState<string | null>(null),
-    [activity, setActivity] = useState<Record<string, string>>({});
+    [activity, setActivity] = useState<Record<string, string>>({}),
+    [branches, setBranches] = useState<Record<string, boolean>>({});
   useEffect(() => observeSelectedTab(setSelected), []);
   const menuFor = useRef<(id: string, anchor?: MenuAnchor) => void>(() => {});
   const onActivity = useCallback(
@@ -276,7 +289,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const { agents: raw, workspaces, terminals, state, archiveCounts } = d.data;
   const groupOrder = reconcileOrder(state.groupOrder, workspaces.map(w => w.id));
   const workspaceById = new Map(workspaces.map(w => [w.id, w]));
-  const all = [...raw].sort((a, b) =>
+  const kids = runningByParent(raw);
+  const all = raw.filter((a) => !a.parentAgentId).sort((a, b) =>
     (activity[b.id] ?? b.lastUserMessageAt ?? b.createdAt).localeCompare(
       activity[a.id] ?? a.lastUserMessageAt ?? a.createdAt,
     ),
@@ -339,7 +353,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
       </View>
     </Modal>}
     <Block theme={p.theme} compact={p.layout.compact} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
-      {all.filter((a) => !a.archivedAt).map((a) => (
+      {raw.filter((a) => !a.archivedAt).map((a) => (
         <Activity key={a.id} id={a.id} onActivity={onActivity} />
       ))}
       {pref.isError && (
@@ -383,24 +397,45 @@ export function Dialogs(p: PluginSidebarItemProps) {
           limit = limits[w.id] ?? 10;
         const counts: Partial<Record<Status, number>> = {};
         active.forEach((a) => {
-          const s = status(a);
+          // A dialog at rest with working subagents counts as "В работе".
+          const own = status(a),
+            s = kids.has(a.id) && atRest(own) ? "running" : own;
           counts[s] = (counts[s] ?? 0) + 1;
         });
-        const row = (a: PaseoAgent) => (
-          <AgentRow
-            key={a.id}
-            agent={a}
-            theme={p.theme}
-            time={activity[a.id]}
-            unread={
-              Object.hasOwn(state.unread, a.id)
-                ? !!state.unread[a.id]
-                : undefined
-            }
-            selected={selected === a.id}
-            onPress={() => openAgent(a.id)}
-          />
-        );
+        const row = (a: PaseoAgent) => {
+          const busy = a.archivedAt ? [] : (kids.get(a.id) ?? []),
+            open = !!branches[a.id] && busy.length > 0;
+          return (
+            <View key={a.id}>
+              <AgentRow
+                agent={a}
+                theme={p.theme}
+                time={activity[a.id]}
+                unread={
+                  Object.hasOwn(state.unread, a.id)
+                    ? !!state.unread[a.id]
+                    : undefined
+                }
+                selected={selected === a.id}
+                subagents={busy.length}
+                open={open}
+                onToggle={() => setBranches((old) => ({ ...old, [a.id]: !old[a.id] }))}
+                onPress={() => openAgent(a.id)}
+              />
+              {open && busy.map((k) => (
+                <AgentRow
+                  key={k.id}
+                  agent={k}
+                  theme={p.theme}
+                  time={activity[k.id] ?? k.lastActivityAt ?? undefined}
+                  sub
+                  selected={selected === k.id}
+                  onPress={() => openAgent(k.id)}
+                />
+              ))}
+            </View>
+          );
+        };
         return (
           <View key={w.id} testID={`dialogs-group-${w.id}`}>
             <GroupLine
@@ -531,7 +566,7 @@ export function Destination({
         const all = (await getAgents({ archives: [], limit: 0 })).agents;
         const last =
           all
-            .filter((a) => a.workspaceId === id)
+            .filter((a) => a.workspaceId === id && !a.parentAgentId)
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ??
           all[0];
         const config = last

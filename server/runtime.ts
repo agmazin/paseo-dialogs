@@ -18,7 +18,7 @@ import {
 } from "../shared/contracts";
 import { transfer } from "./transfer";
 import { transferClient } from "./transfer-client";
-import { autoTitle, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
+import { autoTitle, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import type { PaseoApi } from "@getpaseo/client";
 const directory = join(
@@ -167,12 +167,14 @@ export function register(server: PluginServerContext) {
     return { claimed: true };
   });
   let restored: Promise<void> | undefined;
-  const topLevelAgents = async (paseo: PaseoApi) => {
+  // Top-level dialogs, plus live subagents when asked: the list shows them under a parent at rest.
+  const topLevelAgents = async (paseo: PaseoApi, withRunningSubagents = false) => {
     let cursor: string | undefined;
     const rows: FullAgent[] = [];
     do {
       const r = await paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
-      for (const { agent } of r.entries) if (topLevel(agent)) rows.push(agent);
+      for (const { agent } of r.entries)
+        if (topLevel(agent) || (withRunningSubagents && runningSubagent(agent))) rows.push(agent);
       cursor = r.pageInfo.nextCursor ?? undefined;
     } while (cursor);
     return rows;
@@ -180,7 +182,7 @@ export function register(server: PluginServerContext) {
   const recent = (a: FullAgent, b: FullAgent) =>
     (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt);
   server.handle(readAgents, async ({ archives, limit }, { paseo }) => {
-    const all = await topLevelAgents(paseo);
+    const all = await topLevelAgents(paseo, true);
     const open = new Set(archives);
     const archiveCounts: Record<string, number> = {};
     const archived = new Map<string, FullAgent[]>();

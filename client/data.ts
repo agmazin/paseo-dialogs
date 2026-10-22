@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoApi, PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import type { z } from "zod";
 import { readAgents, readState, type SlimAgent, type stateSchema } from "../shared/contracts";
-import { slim, topLevel } from "../shared/model";
+import { runningSubagent, slim, topLevel } from "../shared/model";
 export async function agents(paseo: PaseoApi) {
   let cursor: string | undefined;
   const all: PaseoAgent[] = [];
@@ -73,7 +73,7 @@ export function useData(hostId: string) {
       if (update.kind === "upsert" && topLevel(update.agent) && !!update.agent.archivedAt !== !!old?.archivedAt) return refetchSoon();
       patch((data) => {
         const rest = data.agents.filter((a) => a.id !== id);
-        if (update.kind !== "upsert" || !topLevel(update.agent)) return { ...data, agents: rest };
+        if (update.kind !== "upsert" || !(topLevel(update.agent) || runningSubagent(update.agent))) return { ...data, agents: rest };
         return { ...data, agents: [...rest, slim(update.agent)].sort(byActivity) };
       });
     });
