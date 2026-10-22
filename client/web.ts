@@ -125,6 +125,9 @@ export function menuAnchor(event: unknown): { x: number; y: number } | undefined
 }
 
 interface SidebarElement {
+  children: Iterable<SidebarElement>;
+  previousElementSibling: SidebarElement | null;
+  textContent: string | null;
   parentElement: SidebarElement | null;
   style: {
     getPropertyValue(name: string): string;
@@ -208,43 +211,93 @@ export function hideNativeWorkspaces(enabled: boolean) {
     body: SidebarElement;
     querySelectorAll(selector: string): Iterable<SidebarElement>;
   };
-  const hidden = new Map<SidebarElement, { value: string; priority: string }>();
-  const restore = (node: SidebarElement) => {
-    const previous = hidden.get(node);
+  const changed = new Map<SidebarElement, Map<string, { value: string; priority: string }>>();
+  const restore = (node: SidebarElement, property: string) => {
+    const saved = changed.get(node);
+    const previous = saved?.get(property);
     if (!previous) return;
-    if (previous.value) node.style.setProperty("display", previous.value, previous.priority);
-    else node.style.removeProperty("display");
-    hidden.delete(node);
+    if (previous.value) node.style.setProperty(property, previous.value, previous.priority);
+    else node.style.removeProperty(property);
+    saved!.delete(property);
+    if (!saved!.size) changed.delete(node);
   };
   const reconcile = () => {
-    const targets = new Set<SidebarElement>();
+    const targets = new Map<SidebarElement, Map<string, string>>();
+    const set = (node: SidebarElement, property: string, value: string) => {
+      if (!targets.has(node)) targets.set(node, new Map());
+      targets.get(node)!.set(property, value);
+    };
     for (const list of doc.querySelectorAll('[data-testid="sidebar-project-workspace-list-scroll"]')) {
       let section: SidebarElement | null = list;
       for (let depth = 0; section && depth < 5; depth++, section = section.parentElement) {
         if (section.querySelector('[data-testid="dialogs-block"], [data-testid="sidebar-footer"], [data-testid^="plugin-sidebar-"]')) break;
         if (section.querySelector('[data-testid="sidebar-display-preferences-menu"]')) {
-          targets.add(section);
+          set(section, "display", "none");
+          let wrapper = section.parentElement;
+          while (wrapper && [...wrapper.children].length === 1 &&
+              !wrapper.querySelector('[data-testid="dialogs-block"], [data-testid="sidebar-footer"], [data-testid^="plugin-sidebar-"]')) {
+            set(wrapper, "display", "none");
+            wrapper = wrapper.parentElement;
+          }
           break;
         }
       }
     }
-    for (const node of hidden.keys()) if (!targets.has(node)) restore(node);
-    for (const node of targets) {
-      if (!hidden.has(node)) hidden.set(node, {
-        value: node.style.getPropertyValue("display"),
-        priority: node.style.getPropertyPriority("display"),
-      });
-      if (node.style.getPropertyValue("display") !== "none" || node.style.getPropertyPriority("display") !== "important") {
-        node.style.setProperty("display", "none", "important");
+    for (const block of doc.querySelectorAll('[data-testid="dialogs-block"]')) {
+      let branch = block;
+      let sidebar = branch.parentElement;
+      while (sidebar && !sidebar.querySelector('[data-testid="sidebar-footer"]')) {
+        branch = sidebar;
+        sidebar = sidebar.parentElement;
+      }
+      if (!sidebar) continue;
+      const list = sidebar.querySelector('[data-testid="sidebar-project-workspace-list-scroll"]');
+      if (!list || ![...targets.keys()].some(section => section === list || section.contains(list))) continue;
+      let group = block.parentElement;
+      while (group && group !== sidebar) {
+        set(group, "flex", "1 1 0%");
+        set(group, "min-height", "0px");
+        set(group, "border-bottom-width", "0px");
+        group = group.parentElement;
+      }
+      set(block, "flex", "1 1 0%");
+      set(block, "min-height", "0px");
+      const scroll = block.querySelector('[data-testid="dialogs-scroll"]');
+      if (scroll) {
+        set(scroll, "flex", "1 1 0%");
+        set(scroll, "max-height", "none");
+      }
+      // Null footer contributions still leave host padding and a separator in Paseo 0.12.
+      const footer = sidebar.querySelector('[data-testid="sidebar-footer"]');
+      const separator = footer?.querySelector('[data-testid="sidebar-footer-separator"]');
+      const rows = separator?.previousElementSibling;
+      if (rows && !rows.textContent?.trim() && !rows.querySelector('[role="button"], input, img, svg, canvas')) {
+        set(rows, "display", "none");
+        set(separator!, "display", "none");
+      }
+    }
+    for (const [node, properties] of changed) {
+      for (const property of properties.keys()) if (!targets.get(node)?.has(property)) restore(node, property);
+    }
+    for (const [node, properties] of targets) {
+      for (const [property, value] of properties) {
+        if (!changed.has(node)) changed.set(node, new Map());
+        const saved = changed.get(node)!;
+        if (!saved.has(property)) saved.set(property, {
+          value: node.style.getPropertyValue(property), priority: node.style.getPropertyPriority(property),
+        });
+        if (node.style.getPropertyValue(property) !== value || node.style.getPropertyPriority(property) !== "important") {
+          node.style.setProperty(property, value, "important");
+        }
       }
     }
   };
   const observer = new MutationObserver(reconcile);
-  observer.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-testid", "id", "style"] });
+  observer.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["data-testid", "id", "style"] });
   reconcile();
   return () => {
     observer.disconnect();
-    for (const node of hidden.keys()) restore(node);
+    for (const [node, properties] of changed) for (const property of properties.keys()) restore(node, property);
   };
 }
 
@@ -493,4 +546,13 @@ export function bindGroupMenu(node: unknown, onMenu: (id: string, anchor: { x: n
 export function isWorkspaceRouteOpen(id: string) {
   return Platform.OS === "web" && typeof window !== "undefined" &&
     window.location.pathname.split("/").includes(id);
+}
+
+// Native hover hint: React Native Web does not forward "title" to the DOM element.
+export function setHoverTitle(node: unknown, text: string | undefined) {
+  if (Platform.OS !== "web" || !node) return;
+  const el = node as { setAttribute(name: string, value: string): void; removeAttribute(name: string): void };
+  if (typeof el.setAttribute !== "function") return;
+  if (text) el.setAttribute("title", text);
+  else el.removeAttribute("title");
 }

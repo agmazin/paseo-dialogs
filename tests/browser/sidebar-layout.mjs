@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 const { chromium } = await import(process.env.PLAYWRIGHT ?? "playwright");
-const artifact = new URL("../../artifacts/0.7.0/", import.meta.url).pathname;
+const artifact = new URL("../../artifacts/0.7.1/", import.meta.url).pathname;
 await mkdir(artifact, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 try {
@@ -33,6 +33,7 @@ try {
     });
     assert.ok(result.block.bottom <= result.kanban.top, "Канбан должен идти после блока");
     assert.ok(result.kanban.bottom <= result.footer.top, "Канбан должен быть выше нижнего меню");
+    assert.ok(result.footer.top - result.kanban.bottom <= 8, "Канбан сразу над единственной линией");
     assert.ok(result.footer.bottom <= height, "нижнее меню должно помещаться в окно");
     assert.ok(result.kanbanClickable && result.footerClickable && result.footerButtons > 0);
     assert.ok(result.scroll.content > result.scroll.client, "нужен длинный список фикстур");

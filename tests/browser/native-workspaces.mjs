@@ -51,5 +51,19 @@ try {
   await page.evaluate(()=>{window.cleanup();window.cleanup=window.hide(true)});
   assert.equal(await page.locator('#native').isVisible(), true);
   await page.evaluate(()=>window.cleanup());
-  console.log('PASS: exact markers, footer isolation, rerender, marker loss, cleanup, toggle');
+  await page.setContent('<aside style="height:700px;display:flex;flex-direction:column"><div id="header"><div id="group" style="display:flex;flex-direction:column;border-bottom:1px solid"><div data-testid="dialogs-block"><div data-testid="dialogs-scroll">Диалоги</div></div><button>Канбан</button></div></div><div id="native-wrapper"><section><button data-testid="sidebar-display-preferences-menu">Вид</button><div data-testid="sidebar-project-workspace-list-scroll"></div></section></div><footer data-testid="sidebar-footer" style="border-top:1px solid"><div id="empty-rows"><div></div></div><div data-testid="sidebar-footer-separator" style="border-bottom:1px solid"></div><button>Настройки</button></footer></aside>');
+  await page.evaluate(() => { window.cleanup = window.hide(true); });
+  assert.equal(await page.locator('#native-wrapper').isVisible(), false);
+  assert.equal(await page.locator('#empty-rows').isVisible(), false);
+  assert.equal(await page.getByTestId('sidebar-footer-separator').isVisible(), false);
+  assert.equal(await page.locator('#group').evaluate(e => getComputedStyle(e).borderBottomWidth), '0px');
+  assert.equal(await page.getByTestId('sidebar-footer').evaluate(e => getComputedStyle(e).borderTopWidth), '1px');
+  await page.locator('#empty-rows > div').evaluate(e => e.innerHTML = '<button>Новый пункт</button>');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('#empty-rows')).display !== 'none');
+  assert.equal(await page.getByTestId('sidebar-footer-separator').isVisible(), true);
+  await page.evaluate(() => window.cleanup());
+  assert.equal(await page.locator('#native-wrapper').isVisible(), true);
+  assert.equal(await page.locator('#group').evaluate(e => getComputedStyle(e).borderBottomWidth), '1px');
+  assert.equal(await page.getByTestId('dialogs-scroll').evaluate(e => e.style.maxHeight), '');
+  console.log('PASS: exact markers, footer isolation, rerender, marker loss, cleanup, toggle, single separator, live footer contribution');
 } finally { await browser.close(); }
