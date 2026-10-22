@@ -133,13 +133,14 @@ export function register(server: PluginServerContext) {
           if ((error as {code?: string}).code !== "ENOENT") throw error;
         }
         return await transfer(client, input, {
-          before: async (agent) => {
+          before: async (agent, live) => {
             await mkdir(directory, { recursive: true, mode: 0o700 });
             await writeFile(recoveryPath, JSON.stringify({
               agentId: agent.id, sourceId: input.sourceId, targetId: input.targetId,
               provider: agent.provider, sessionId: agent.persistence!.sessionId,
               cwd: agent.cwd, title: agent.title, labels: agent.labels,
               archived: !!agent.archivedAt, unread,
+              subagents: live.map(d => ({ id: d.id, provider: d.provider, sessionId: d.persistence?.sessionId, workspaceId: d.workspaceId })),
             }), { mode: 0o600 });
           },
           restore: async (agent) => {

@@ -1,7 +1,9 @@
 import type { PaseoAgent } from "@getpaseo/client";
 
 export const unavailable = "Перенос недоступен в этой версии Paseo. Данные не изменены.";
+type Page = { entries: { agent: PaseoAgent }[]; pageInfo: { nextCursor?: string | null } };
 export type TransferClient = {
+  fetchAgents(options: { filter: { includeArchived: boolean }; page: { limit: number; cursor?: string } }): Promise<Page>;
   fetchAgent(id: string): Promise<{ agent: PaseoAgent } | null>;
   archiveAgent(id: string): Promise<unknown>;
   importAgent(input: { provider: string; sessionId: string; cwd: string; workspaceId: string; labels: Record<string, string> }): Promise<PaseoAgent>;
@@ -9,7 +11,7 @@ export type TransferClient = {
   close(): Promise<void>;
 };
 export function supported(client: unknown): client is TransferClient {
-  return !!client && ["fetchAgent", "archiveAgent", "importAgent", "updateAgent", "close"]
+  return !!client && ["fetchAgents", "fetchAgent", "archiveAgent", "importAgent", "updateAgent", "close"]
     .every(key => typeof (client as Record<string, unknown>)[key] === "function");
 }
 export function transferProblem(a: PaseoAgent) {
@@ -23,11 +25,40 @@ export function transferProblem(a: PaseoAgent) {
   return null;
 }
 
+const parentOf = (a: PaseoAgent) =>
+  (a as PaseoAgent & { parentAgentId?: string }).parentAgentId || a.labels?.["paseo.parent-agent-id"] || null;
+const busy = (a: PaseoAgent) => a.status === "running" || a.status === "initializing" || !!a.activeTurn ||
+  !!a.pendingPermissions?.length || a.attentionReason === "permission" ||
+  !!(a as PaseoAgent & { pendingPermissionCount?: number }).pendingPermissionCount;
+
+// Subagents of the chat at any depth, parents first. Archiving the chat (Paseo 0.12) archives those in its
+// workspace, a running one is stopped mid-turn, and detaches those in another one (drops the parent label).
+export async function descendants(client: TransferClient, id: string) {
+  const all: PaseoAgent[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.fetchAgents({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
+    all.push(...page.entries.map(e => e.agent));
+    cursor = page.pageInfo.nextCursor ?? undefined;
+  } while (cursor);
+  const found: PaseoAgent[] = [];
+  const queue = [id];
+  while (queue.length) {
+    const parent = queue.shift()!;
+    for (const a of all) if (parentOf(a) === parent && !found.some(f => f.id === a.id)) { found.push(a); queue.push(a.id); }
+  }
+  return found;
+}
+export function subagentsProblem(list: readonly PaseoAgent[]) {
+  const n = list.filter(a => !a.archivedAt && busy(a)).length;
+  return n ? `У чата работают подагенты: ${n}. Перенос после их окончания` : null;
+}
+
 // Same-ID archive/import is the tested Paseo 0.12 contract. Never delete a session.
 export async function transfer(client: TransferClient, input: {
   agentId: string; sourceId: string; targetId: string;
 }, hooks: {
-  before: (agent: PaseoAgent) => Promise<void>;
+  before: (agent: PaseoAgent, live: readonly PaseoAgent[]) => Promise<void>;
   restore: (agent: PaseoAgent) => Promise<void>;
 }) {
   if (!supported(client)) throw new Error(unavailable);
@@ -36,6 +67,28 @@ export async function transfer(client: TransferClient, input: {
   if (input.sourceId === input.targetId) throw new Error("Выберите другую папку");
   const problem = transferProblem(a);
   if (problem) throw new Error(problem);
+  // Subagents that were not archived come back from the archive and get their parent back after the move.
+  const live = (await descendants(client, a.id)).filter(d => !d.archivedAt);
+  const busySubagents = subagentsProblem(live);
+  if (busySubagents) throw new Error(busySubagents);
+  const revive = async () => {
+    const lost: string[] = [];
+    for (const d of live) {
+      try {
+        const now = (await client.fetchAgent(d.id))?.agent;
+        if (!now) throw new Error("gone");
+        if (!now.archivedAt && parentOf(now) === parentOf(d)) continue;
+        if (now.archivedAt) {
+          if (!d.workspaceId || !d.persistence?.sessionId) throw new Error("session");
+          await client.importAgent({ provider: d.provider, sessionId: d.persistence.sessionId, cwd: d.cwd,
+            workspaceId: d.workspaceId, labels: { ...d.labels } });
+        }
+        await client.updateAgent(d.id, { ...(d.title ? { name: d.title } : {}),
+          labels: { ...d.labels, "paseo.parent-agent-id": parentOf(d)! } });
+      } catch { lost.push(`${d.provider}: ${d.persistence?.sessionId ?? d.id}`); }
+    }
+    if (lost.length) throw new Error(`Подагенты остались в архиве (${lost.length}): ${lost.join(", ")}. Нужна помощь оркестратора.`);
+  };
   const request = {
     provider: a.provider, sessionId: a.persistence!.sessionId, cwd: a.cwd,
     labels: { ...a.labels },
@@ -52,15 +105,18 @@ export async function transfer(client: TransferClient, input: {
     await hooks.restore(a);
     return moved;
   };
-  await hooks.before(a); // Persist recovery details before the first mutation.
+  let moved: PaseoAgent, touched = false;
+  await hooks.before(a, live); // Persist recovery details before the first mutation.
   try {
     // Recheck after disk work so a newly started turn is not interrupted.
     const latest = (await client.fetchAgent(a.id))?.agent;
     if (!latest || latest.workspaceId !== a.workspaceId || transferProblem(latest))
       throw new Error("Перенести можно, когда агент закончит");
+    const again = subagentsProblem(await Promise.all(live.map(async d => (await client.fetchAgent(d.id))?.agent ?? d)));
+    if (again) throw new Error(again);
+    touched = true;
     await client.archiveAgent(a.id);
-    const moved = await restore(input.targetId);
-    return { agentId: moved.id, workspaceId: input.targetId, archived: false };
+    moved = await restore(input.targetId);
   } catch (error) {
     try {
       const current = (await client.fetchAgent(a.id))?.agent;
@@ -72,9 +128,15 @@ export async function transfer(client: TransferClient, input: {
         await client.archiveAgent(a.id);
         await restore(input.sourceId, !!a.archivedAt);
       }
+      await revive();
     } catch {
       throw new Error(`Перенос и откат не завершены. Сессия ${a.provider}: ${request.sessionId}. Исходная папка: ${input.sourceId}. Нужна помощь оркестратора.`);
     }
+    // Nothing was touched yet (a recheck failed): its own reason is clearer.
+    if (!touched) throw error;
     throw new Error("Перенос не выполнен. Диалог восстановлен в исходной папке.");
   }
+  // The chat is in place; a subagent that did not come back is reported, the move stays.
+  await revive();
+  return { agentId: moved.id, workspaceId: input.targetId, archived: false };
 }

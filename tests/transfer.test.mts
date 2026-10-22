@@ -4,7 +4,7 @@ import { transfer, supported, transferProblem, type TransferClient } from "../se
 import type { PaseoAgent } from "@getpaseo/client";
 
 const input = { agentId: "a", sourceId: "source", targetId: "target" };
-function fixture(archived = false) {
+function fixture(archived = false, subs: Partial<PaseoAgent>[] = []) {
   let a = {
     id: "a", workspaceId: "source", cwd: "/test", provider: "claude",
     title: "Ручное имя", labels: { project: "one" }, status: "idle",
@@ -12,11 +12,32 @@ function fixture(archived = false) {
     persistence: { sessionId: "session", provider: "claude" },
   } as unknown as PaseoAgent;
   const calls: string[] = [];
+  // Subagents: archiving the chat archives them too, as Paseo 0.12 does.
+  const kids = subs.map((k, i) => ({
+    id: `k${i}`, workspaceId: "source", cwd: "/test", provider: "claude", title: `Карточка ${i}`,
+    labels: { "paseo.parent-agent-id": "a" }, status: "idle", pendingPermissions: [], archivedAt: null,
+    persistence: { sessionId: `s${i}`, provider: "claude" }, ...k,
+  }) as unknown as PaseoAgent);
+  const byId = (id: string) => (id === "a" ? a : kids.find(k => k.id === id)!);
   let failTarget = false, failRollback = false, failMetadata = false;
   const client: TransferClient = {
-    fetchAgent: async () => ({ agent: structuredClone(a) }),
-    archiveAgent: async () => { calls.push("archive"); a.archivedAt = "now"; },
+    fetchAgents: async () => ({ entries: [a, ...kids].map(agent => ({ agent: structuredClone(agent) })), pageInfo: {} }),
+    fetchAgent: async id => ({ agent: structuredClone(byId(id)) }),
+    archiveAgent: async () => {
+      calls.push("archive"); a.archivedAt = "now";
+      for (const k of kids) {
+        if (k.archivedAt) continue;
+        if (k.workspaceId === a.workspaceId) { k.archivedAt = "now"; k.status = "closed"; }
+        else { const { "paseo.parent-agent-id": _, ...rest } = k.labels as Record<string, string>; k.labels = rest; }
+      }
+    },
     importAgent: async p => {
+      const kid = kids.find(k => k.persistence!.sessionId === p.sessionId);
+      if (kid) {
+        calls.push(`revive:${kid.id}`);
+        if (kid.title === "сломан") throw new Error("injected");
+        kid.archivedAt = null; kid.status = "idle"; return structuredClone(kid);
+      }
       calls.push("import:" + p.workspaceId);
       if ((p.workspaceId === "target" && failTarget) || (p.workspaceId === "source" && failRollback))
         throw new Error("injected");
@@ -25,13 +46,14 @@ function fixture(archived = false) {
       a.workspaceId = p.workspaceId; a.archivedAt = null;
       return structuredClone(a);
     },
-    updateAgent: async (_, p) => {
+    updateAgent: async (id, p) => {
+      if (id !== "a") { calls.push(`update:${id}`); byId(id).labels = { ...byId(id).labels, ...p.labels }; return; }
       if (failMetadata && a.workspaceId === "target") throw new Error("metadata");
       calls.push("metadata"); a.title = p.name ?? a.title; a.labels = p.labels;
     },
     close: async () => {},
   };
-  return { client, calls, get: () => a,
+  return { client, calls, get: () => a, kid: byId,
     fail: (target: boolean, rollback = false, metadata = false) => {
       failTarget = target; failRollback = rollback; failMetadata = metadata;
     } };
@@ -100,4 +122,40 @@ test("failed recovery write and newly started turn do not archive an agent", asy
   assert.deepEqual(f.calls, []);
   await assert.rejects(transfer(f.client, input, {...hooks,before:async()=>{f.get().status="running";}}));
   assert.deepEqual(f.calls, []);
+});
+
+test("subagents: not archived ones come back after the move, archived stay, the chat keeps its new place", async () => {
+  const f = fixture(false, [{}, { archivedAt: "old" }, { labels: { "paseo.parent-agent-id": "k0" } }]);
+  await transfer(f.client, input, hooks);
+  assert.equal(f.get().workspaceId, "target");
+  assert.deepEqual(f.calls, ["archive", "import:target", "metadata", "revive:k0", "update:k0", "revive:k2", "update:k2"]);
+  const [k0, k1, k2] = await Promise.all(["k0", "k1", "k2"].map(async id => (await f.client.fetchAgent(id))!.agent));
+  assert.equal(k0.archivedAt, null); assert.equal(k0.workspaceId, "source");
+  assert.equal(k1.archivedAt, "old"); assert.equal(k2.archivedAt, null);
+});
+test("a working subagent blocks the move before anything changes", async () => {
+  for (const patch of [{ status: "running" }, { labels: { "paseo.parent-agent-id": "k0" }, status: "initializing" }]) {
+    const f = fixture(false, [{}, patch]);
+    await assert.rejects(transfer(f.client, input, hooks), { message: "У чата работают подагенты: 1. Перенос после их окончания" });
+    assert.deepEqual(f.calls, []);
+  }
+  // Started between the check and the archive: still nothing changes, the reason is the same.
+  const f = fixture(false, [{}]);
+  await assert.rejects(transfer(f.client, input, { ...hooks, before: async () => { f.kid("k0").status = "running"; } }),
+    { message: "У чата работают подагенты: 1. Перенос после их окончания" });
+  assert.deepEqual(f.calls, []);
+});
+test("a subagent that does not come back is reported, the chat stays moved", async () => {
+  const f = fixture(false, [{ title: "сломан" }, {}]);
+  await assert.rejects(transfer(f.client, input, hooks), /Подагенты остались в архиве \(1\): claude: s0/);
+  assert.equal(f.get().workspaceId, "target");
+  assert.equal((await f.client.fetchAgent("k1"))!.agent.archivedAt, null);
+});
+
+test("subagents in another workspace lose their parent on archive: the move gives it back", async () => {
+  const f = fixture(false, [{ workspaceId: "elsewhere" }, { workspaceId: "elsewhere", archivedAt: "old" }]);
+  await transfer(f.client, input, hooks);
+  assert.deepEqual(f.calls, ["archive", "import:target", "metadata", "update:k0"]);
+  assert.equal(f.kid("k0").labels["paseo.parent-agent-id"], "a");
+  assert.equal(f.kid("k0").archivedAt, null);
 });
