@@ -18,9 +18,9 @@ import {
 } from "@getpaseo/plugin/client";
 import { Modal as HostModal, TextInput as HostTextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PaseoAgent } from "@getpaseo/client";
+import type { SlimAgent as PaseoAgent } from "../shared/contracts";
 import { displaySettings } from "../shared/settings";
-import { claimAction, preference, reorderGroups, moveDialog, ROOT } from "../shared/contracts";
+import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArchive, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, bucket } from "../shared/model";
@@ -229,7 +229,11 @@ export function Dialogs(p: PluginSidebarItemProps) {
         ...old, state: { ...old.state, [input.section]: { ...old.state[input.section], [input.id]: input.value } },
       } : old);
     },
-    onSuccess: (state) => setState(qc, p.host.id, state),
+    onSuccess: (state, input) => {
+      setState(qc, p.host.id, state);
+      // An opened archive needs its rows: they are loaded on demand.
+      if (input.section === "archives" && input.value) void qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+    },
     onError: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
   const orderMutation = useMutation({
@@ -269,7 +273,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
         {d.isError ? "Диалоги: ошибка загрузки" : "Диалоги: загрузка..."}
       </Label>
     );
-  const { agents: raw, workspaces, terminals, state } = d.data;
+  const { agents: raw, workspaces, terminals, state, archiveCounts } = d.data;
   const groupOrder = reconcileOrder(state.groupOrder, workspaces.map(w => w.id));
   const workspaceById = new Map(workspaces.map(w => [w.id, w]));
   const all = [...raw].sort((a, b) =>
@@ -353,7 +357,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
         canMoveDialog={id => {
           const a = all.find(a => a.id === id);
           if (!a) return false;
-          if (a.status === "running" || a.status === "initializing" || a.activeTurn || a.pendingPermissions?.length || a.attentionReason === "permission") {
+          if (a.status === "running" || a.status === "initializing" || a.activeTurn || a.pendingPermissionCount || a.attentionReason === "permission") {
             setMoveError("Перенести можно, когда агент закончит"); return false;
           }
           setMoveError(""); return true;
@@ -370,6 +374,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
             (a) => a.workspaceId === w.id && !a.archivedAt,
           ),
           archive = all.filter((a) => a.workspaceId === w.id && a.archivedAt),
+          archiveCount = archiveCounts[w.id] ?? archive.length,
           ts = terminals
             .filter((t) => t.workspaceId === w.id)
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -433,11 +438,11 @@ export function Dialogs(p: PluginSidebarItemProps) {
                     }}
                   />
                 ))}
-                {!!archive.length && (
+                {archiveCount > 0 && (
                   <>
                     <ArchiveLine
                       theme={p.theme}
-                      count={archive.length}
+                      count={archiveCount}
                       open={archOpen}
                       onPress={() =>
                         pref.mutate({
@@ -450,7 +455,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                     {archOpen && (
                       <>
                         {archive.slice(0, limit).map(row)}
-                        {archive.length > limit && limit < 30 && (
+                        {archiveCount > limit && limit < 30 && (
                           <MoreLine
                             label="Показать ещё 10"
                             theme={p.theme}
@@ -459,9 +464,9 @@ export function Dialogs(p: PluginSidebarItemProps) {
                             }
                           />
                         )}{" "}
-                        {archive.length > 30 && limit >= 30 && (
+                        {archiveCount > 30 && limit >= 30 && (
                           <MoreLine
-                            label={`Весь архив: ${archive.length}`}
+                            label={`Весь архив: ${archiveCount}`}
                             theme={p.theme}
                             onPress={() =>
                               p.openScreen({
@@ -493,6 +498,7 @@ export function Destination({
 }: PluginScreenProps) {
   const paseo = usePaseo();
   const claim = useRpc(claimAction);
+  const getAgents = useRpc(readAgents);
   const started = useRef("");
   const [error, setError] = useState("");
   useLayoutEffect(() => {
@@ -522,7 +528,7 @@ export function Destination({
         return;
       }
       if (params.action === "agent") {
-        const all = await agents(paseo);
+        const all = (await getAgents({ archives: [], limit: 0 })).agents;
         const last =
           all
             .filter((a) => a.workspaceId === id)
@@ -602,14 +608,20 @@ export function Archive({
   navigation,
   host,
 }: PluginScreenProps) {
-  const d = useData(host.id);
+  const getArchive = useRpc(readArchive);
+  const archive = useQuery({
+    queryKey: ["dialogs-archive", host.id, params.workspaceId],
+    queryFn: () => getArchive({ workspaceId: params.workspaceId ?? "" }),
+    enabled: !!params.workspaceId,
+    staleTime: 30_000,
+  });
   const times = useQuery<Record<string, string>>({
     queryKey: ["dialogs-activity", host.id], queryFn: async () => ({}),
     initialData: {}, staleTime: Infinity,
   }).data;
   const [query, setQuery] = useState("");
   const list =
-    (d.data?.agents.filter(
+    (archive.data?.agents.filter(
       (a) =>
         a.workspaceId === params.workspaceId &&
         a.archivedAt &&

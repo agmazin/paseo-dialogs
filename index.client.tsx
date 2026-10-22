@@ -3,6 +3,7 @@ import { Dialogs, Destination, Archive } from "./client/dialogs";
 import { ReadMarker } from "./client/marker";
 import { markerSchema } from "./shared/contracts";
 import { DisplaySettings } from "./client/settings";
+import { subscribeOnce } from "./client/data";
 export default function contribute(client: PluginClientContext) {
   client.addSettingsScreen({ id: "display", title: "Диалоги", icon: "PanelsTopLeft", Component: DisplaySettings });
   client.addScreen({
@@ -26,5 +27,5 @@ export default function contribute(client: PluginClientContext) {
     schema: markerSchema,
     Component: ReadMarker,
   });
-  return () => {};
+  return subscribeOnce(client.paseo);
 }

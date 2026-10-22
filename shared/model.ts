@@ -45,3 +45,45 @@ export function activityTime(date: string, now = new Date()) {
   if (d.toDateString() === yesterday.toDateString()) return "вчера";
   return `${d.getDate()} ${["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"][d.getMonth()]}`;
 }
+
+export interface FullAgent {
+  id: string;
+  title?: string | null;
+  provider: string;
+  model?: string | null;
+  currentModeId?: string | null;
+  thinkingOptionId?: string | null;
+  status: string;
+  workspaceId?: string | null;
+  archivedAt?: string | null;
+  createdAt: string;
+  lastUserMessageAt?: string | null;
+  lastActivityAt?: string | null;
+  requiresAttention?: boolean;
+  attentionReason?: string | null;
+  pendingPermissions?: readonly unknown[] | null;
+  activeTurn?: unknown;
+  parentAgentId?: string | null;
+  labels?: Readonly<Record<string, string>>;
+}
+export function slim(a: FullAgent) {
+  return {
+    id: a.id,
+    title: a.title ?? null,
+    provider: a.provider,
+    model: a.model ?? null,
+    currentModeId: a.currentModeId ?? null,
+    thinkingOptionId: a.thinkingOptionId ?? null,
+    status: a.status,
+    workspaceId: a.workspaceId ?? null,
+    archivedAt: a.archivedAt ?? null,
+    createdAt: a.createdAt,
+    lastUserMessageAt: a.lastUserMessageAt ?? null,
+    lastActivityAt: a.lastActivityAt ?? null,
+    requiresAttention: !!a.requiresAttention,
+    attentionReason: a.attentionReason ?? null,
+    pendingPermissionCount: a.pendingPermissions?.length ?? 0,
+    activeTurn: !!a.activeTurn,
+    parentAgentId: a.parentAgentId || a.labels?.["paseo.parent-agent-id"] || null,
+  };
+}

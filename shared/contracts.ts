@@ -46,3 +46,37 @@ export const moveDialog = defineRpc({
   input: z.object({ agentId: z.string().min(1), sourceId: z.string().min(1), targetId: z.string().min(1) }),
   output: z.object({ agentId: z.string(), workspaceId: z.string(), archived: z.boolean() }),
 });
+
+// Slim agent rows built on the daemon machine: the phone receives what the list needs
+// (about 15 fields) instead of full snapshots (824 KB for 425 agents on 22.10.2026).
+export const slimAgentSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  provider: z.string(),
+  model: z.string().nullable(),
+  currentModeId: z.string().nullable(),
+  thinkingOptionId: z.string().nullable(),
+  status: z.string(),
+  workspaceId: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+  createdAt: z.string(),
+  lastUserMessageAt: z.string().nullable(),
+  lastActivityAt: z.string().nullable(),
+  requiresAttention: z.boolean(),
+  attentionReason: z.string().nullable(),
+  pendingPermissionCount: z.number(),
+  activeTurn: z.boolean(),
+  parentAgentId: z.string().nullable(),
+});
+export type SlimAgent = z.output<typeof slimAgentSchema>;
+// Live dialogs plus archive counts; archived rows only for groups whose "Архив" is open.
+export const readAgents = defineRpc({
+  name: "dialogs.agents",
+  input: z.object({ archives: z.array(z.string()), limit: z.number().int().min(0).max(200) }),
+  output: z.object({ agents: z.array(slimAgentSchema), archiveCounts: z.record(z.string(), z.number()) }),
+});
+export const readArchive = defineRpc({
+  name: "dialogs.archive",
+  input: z.object({ workspaceId: z.string().min(1) }),
+  output: z.object({ agents: z.array(slimAgentSchema) }),
+});

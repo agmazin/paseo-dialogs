@@ -1,7 +1,7 @@
 {
   "name": "paseo-dialogs",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",

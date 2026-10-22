@@ -3,8 +3,8 @@ import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoApi, PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import type { z } from "zod";
-import { readState, type stateSchema } from "../shared/contracts";
-import { topLevel } from "../shared/model";
+import { readAgents, readState, type SlimAgent, type stateSchema } from "../shared/contracts";
+import { slim, topLevel } from "../shared/model";
 export async function agents(paseo: PaseoApi) {
   let cursor: string | undefined;
   const all: PaseoAgent[] = [];
@@ -29,42 +29,55 @@ async function workspaces(paseo: PaseoApi) {
   return all.filter((w) => !w.background && !w.archivingAt);
 }
 type Data = {
-  agents: PaseoAgent[];
+  agents: SlimAgent[];
+  archiveCounts: Record<string, number>;
   workspaces: PaseoWorkspace[];
   terminals: Awaited<ReturnType<PaseoApi["terminals"]["list"]>>["entries"];
   state: z.output<typeof stateSchema>;
 };
-const byActivity = (a: PaseoAgent, b: PaseoAgent) =>
+const byActivity = (a: SlimAgent, b: SlimAgent) =>
   (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt);
 
-// The phone talks to the Mac through the relay: refetching every agent with the archive
-// (425 agents, 824 KB on 22.10.2026) every few seconds froze the list for up to 20 s.
-// Agent and workspace events now patch the cache; a full refetch runs once a minute.
+// The phone talks to the Mac through the relay. Agent rows are built on the Mac (slim, about
+// 15 fields); events of the plugin's single subscriptions (opened in the client entry) patch the
+// cache; a full refetch runs once a minute.
 export function useData(hostId: string) {
   const paseo = usePaseo();
   const qc = useQueryClient();
   const getState = useRpc(readState);
+  const getAgents = useRpc(readAgents);
   const key = ["dialogs", hostId];
   const query = useQuery({
     queryKey: key,
     queryFn: async (): Promise<Data> => {
-      const [a, w, t, s] = await Promise.all([
-        agents(paseo),
-        workspaces(paseo),
-        paseo.terminals.list(),
-        getState({}),
-      ]);
-      return { agents: a, workspaces: w, terminals: t.entries, state: s };
+      // Archived rows only for groups with an open "Архив" (up to 30 each, the list's maximum).
+      const s = await getState({});
+      const archives = Object.keys(s.archives).filter((id) => s.archives[id]);
+      const [a, w, t] = await Promise.all([getAgents({ archives, limit: 30 }), workspaces(paseo), paseo.terminals.list()]);
+      return { agents: a.agents.sort(byActivity), archiveCounts: a.archiveCounts, workspaces: w, terminals: t.entries, state: s };
     },
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
   useEffect(() => {
-    let alive = true;
-    const cleanups: (() => void)[] = [];
     let wsTimer: ReturnType<typeof setTimeout> | undefined;
     const patch = (fn: (old: Data) => Data) => qc.setQueryData<Data>(key, (old) => (old ? fn(old) : old));
-    const refreshWorkspaces = () => {
+    let reload: ReturnType<typeof setTimeout> | undefined;
+    const refetchSoon = () => {
+      if (!reload) reload = setTimeout(() => ((reload = undefined), void qc.invalidateQueries({ queryKey: key })), 500);
+    };
+    const offAgents = paseo.agents.subscribe((update) => {
+      const id = update.kind === "upsert" ? update.agent.id : update.agentId;
+      const old = qc.getQueryData<Data>(key)?.agents.find((a) => a.id === id);
+      // Archiving moves a dialog between the live list and the archive counts: reload the small list.
+      if (update.kind === "upsert" && topLevel(update.agent) && !!update.agent.archivedAt !== !!old?.archivedAt) return refetchSoon();
+      patch((data) => {
+        const rest = data.agents.filter((a) => a.id !== id);
+        if (update.kind !== "upsert" || !topLevel(update.agent)) return { ...data, agents: rest };
+        return { ...data, agents: [...rest, slim(update.agent)].sort(byActivity) };
+      });
+    });
+    const offWorkspaces = paseo.workspaces.subscribe(() => {
       if (wsTimer) return;
       wsTimer = setTimeout(() => {
         wsTimer = undefined;
@@ -72,49 +85,37 @@ export function useData(hostId: string) {
           .then((w) => patch((old) => ({ ...old, workspaces: w })))
           .catch(() => {});
       }, 300);
-    };
-    void Promise.allSettled([
-      paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 1 }, subscribe: {} }),
-      paseo.workspaces.list({ page: { limit: 1 }, subscribe: {} }),
-    ])
-      .then(([agentList, workspaceList]) => {
-        if (agentList.status === "fulfilled") {
-          const r = agentList.value;
-          if (!alive) r.subscription.release();
-          else {
-            r.subscription.subscribe({
-              snapshot: () => {},
-              update: (message) => {
-                if (message.type !== "agent_update") return;
-                const update = message.payload;
-                patch((old) => {
-                  const rest = old.agents.filter((a) => a.id !== (update.kind === "upsert" ? update.agent.id : update.agentId));
-                  if (update.kind !== "upsert" || !topLevel(update.agent)) return { ...old, agents: rest };
-                  return { ...old, agents: [...rest, update.agent].sort(byActivity) };
-                });
-              },
-            });
-            cleanups.push(() => r.subscription.release());
-          }
-        }
-        if (workspaceList.status === "fulfilled") {
-          const r = workspaceList.value;
-          if (!alive) r.subscription.release();
-          else {
-            r.subscription.subscribe({ snapshot: () => {}, update: refreshWorkspaces });
-            cleanups.push(() => r.subscription.release());
-          }
-        }
-      })
-      .catch(() => {});
+    });
     return () => {
-      alive = false;
+      offAgents();
+      offWorkspaces();
       if (wsTimer) clearTimeout(wsTimer);
-      cleanups.forEach((c) => c());
+      if (reload) clearTimeout(reload);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paseo, qc, hostId]);
   return { ...query, paseo };
+}
+
+// The plugin's single agent and workspace subscriptions: their events reach every useData
+// through paseo.*.subscribe. A subscription per surface made the daemon send each event again.
+export function subscribeOnce(paseo: PaseoApi) {
+  const releases: (() => void)[] = [];
+  let alive = true;
+  void Promise.allSettled([
+    paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 1 }, subscribe: {} }),
+    paseo.workspaces.list({ page: { limit: 1 }, subscribe: {} }),
+  ]).then((results) => {
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      if (alive) releases.push(() => r.value.subscription.release());
+      else r.value.subscription.release();
+    }
+  });
+  return () => {
+    alive = false;
+    releases.forEach((r) => r());
+  };
 }
 
 // Preference and order RPCs return the whole state: put it into the cache, no refetch.
