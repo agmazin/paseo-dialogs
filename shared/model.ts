@@ -109,3 +109,9 @@ export function slim(a: FullAgent) {
     parentAgentId: a.parentAgentId || a.labels?.["paseo.parent-agent-id"] || null,
   };
 }
+
+// "AGM-1: Paseo Канбан": the number the Kanban plugin puts before a chat title.
+export function splitKey(title: string) {
+  const m = /^([A-Z]{3}-\d+(?:-\d+)*): (\S.*)$/.exec(title);
+  return m ? { key: m[1], name: m[2] } : { key: null, name: title };
+}

@@ -88,3 +88,11 @@ test("only running, unarchived subagents hang under their parent", () => {
   assert.deepEqual(kids.get("p1")!.map((k) => k.id), ["a", "d"]);
   assert.deepEqual(["done", "attention", "running", "needs_input", "failed"].map(atRest), [true, true, false, false, false]);
 });
+
+test("the Kanban number before a title is split off for the muted color", async () => {
+  const { splitKey } = await import("../shared/model.ts");
+  assert.deepEqual(splitKey("AGM-1: Paseo Канбан"), { key: "AGM-1", name: "Paseo Канбан" });
+  assert.deepEqual(splitKey("AGM-1-2-3: Вложенный"), { key: "AGM-1-2-3", name: "Вложенный" });
+  assert.deepEqual(splitKey("GPT-6-Astra: мнение"), { key: null, name: "GPT-6-Astra: мнение" });
+  assert.deepEqual(splitKey("Без номера"), { key: null, name: "Без номера" });
+});

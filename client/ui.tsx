@@ -16,7 +16,7 @@ import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { providerSvg, menuAnchor, observeSidebarHeight, setHoverTitle } from "./web";
 import { providerIcons } from "./icons";
-import { atRest } from "../shared/model";
+import { atRest, splitKey } from "../shared/model";
 export type MenuAnchor = { x: number; y: number };
 function anchor(e: GestureResponderEvent): MenuAnchor | undefined { return menuAnchor(e); }
 export type Theme = PluginSidebarItemProps["theme"];
@@ -412,6 +412,7 @@ export function AgentLine({
   testID?: string;
 }) {
   const p = palette(theme);
+  const named = splitKey(title);
   const small = old || sub,
     // Permission and error badges stay: they need the user more than working subagents do.
     busy = subagents > 0 && atRest(status);
@@ -456,7 +457,8 @@ export function AgentLine({
             size={small ? 13 : 13.5}
             style={{ flex: 1 }}
           >
-            {title}
+            {named.key ? <Text style={{ color: p.dim }}>{named.key} </Text> : null}
+            {named.name}
           </Label>
           <Label
             size={12}
