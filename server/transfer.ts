@@ -33,7 +33,7 @@ export async function transfer(client: TransferClient, input: {
   if (!supported(client)) throw new Error(unavailable);
   const a = (await client.fetchAgent(input.agentId))?.agent;
   if (!a || a.workspaceId !== input.sourceId) throw new Error("Диалог уже перемещён. Обновите список.");
-  if (input.sourceId === input.targetId) throw new Error("Выберите другое пространство");
+  if (input.sourceId === input.targetId) throw new Error("Выберите другую папку");
   const problem = transferProblem(a);
   if (problem) throw new Error(problem);
   const request = {
@@ -73,8 +73,8 @@ export async function transfer(client: TransferClient, input: {
         await restore(input.sourceId, !!a.archivedAt);
       }
     } catch {
-      throw new Error(`Перенос и откат не завершены. Сессия ${a.provider}: ${request.sessionId}. Исходное пространство: ${input.sourceId}. Нужна помощь оркестратора.`);
+      throw new Error(`Перенос и откат не завершены. Сессия ${a.provider}: ${request.sessionId}. Исходная папка: ${input.sourceId}. Нужна помощь оркестратора.`);
     }
-    throw new Error("Перенос не выполнен. Диалог восстановлен в исходном пространстве.");
+    throw new Error("Перенос не выполнен. Диалог восстановлен в исходной папке.");
   }
 }

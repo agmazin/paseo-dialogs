@@ -110,7 +110,7 @@ function CreateWorkspace(p: PluginPopoverProps) {
       onClose={p.close}
       compact={p.layout.compact}
       pending={create.isPending}
-      error={create.isError ? "Не удалось создать пространство" : undefined}
+      error={create.isError ? "Не удалось создать папку" : undefined}
     />
   );
 }
@@ -170,7 +170,7 @@ function RenameGroup({ theme, name, onSubmit, onClose }: {
     </Pressable>
   );
   return (
-    <HostModal title="Переименовать рабочее пространство" open onOpenChange={open => { if (!open && !pending) onClose(); }}>
+    <HostModal title="Переименовать папку" open onOpenChange={open => { if (!open && !pending) onClose(); }}>
       <HostModal.Content>
         <View testID="dialogs-rename-group" style={{ gap: 12 }}>
           <HostTextInput accessibilityLabel="Название группы" value={draft} placeholder={name} autoFocus
@@ -306,7 +306,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
       const result = await d.paseo.workspaces.ref(id).archive();
       if (result.error) throw new Error(result.error);
     } catch (error) {
-      toast.error(error instanceof Error && error.message ? error.message : "Не удалось архивировать рабочее пространство");
+      toast.error(error instanceof Error && error.message ? error.message : "Не удалось архивировать папку");
     } finally {
       await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
     }
@@ -519,7 +519,7 @@ export function Destination({
         return;
       }
       const id = params.workspaceId;
-      if (!id) throw new Error("Не выбрано пространство");
+      if (!id) throw new Error("Не выбрана папка");
       if (
         params.action &&
         (!params.token || !(await claim({ token: params.token })).claimed)

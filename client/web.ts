@@ -136,6 +136,71 @@ interface SidebarElement {
   contains(node: SidebarElement): boolean;
 }
 
+interface SidebarLayoutElement {
+  parentElement: SidebarLayoutElement | null;
+  children: Iterable<SidebarLayoutElement>;
+  getBoundingClientRect(): { height: number };
+  querySelector(selector: string): SidebarLayoutElement | null;
+}
+declare const ResizeObserver: new (fn: () => void) => {
+  observe(node: unknown): void;
+  disconnect(): void;
+};
+
+export function observeSidebarHeight(node: unknown, onHeight: (height: number) => void) {
+  if (Platform.OS !== "web" || !node || typeof ResizeObserver === "undefined") return () => {};
+  const root = node as SidebarLayoutElement;
+  const doc = document as unknown as { body: SidebarLayoutElement };
+  const win = window as unknown as {
+    getComputedStyle(node: SidebarLayoutElement): { flexGrow: string; display: string };
+  };
+  const observed = new Set<SidebarLayoutElement>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    if (timer !== undefined) return;
+    timer = setTimeout(() => { timer = undefined; measure(); }, 0);
+  };
+  const resize = new ResizeObserver(schedule);
+  const watch = (el: SidebarLayoutElement) => {
+    if (observed.has(el)) return;
+    observed.add(el);
+    resize.observe(el);
+  };
+  const measure = () => {
+    let branch = root;
+    let sidebar = branch.parentElement;
+    while (sidebar && !sidebar.querySelector('[data-testid="sidebar-footer"]')) {
+      branch = sidebar;
+      sidebar = sidebar.parentElement;
+    }
+    if (!sidebar) return;
+    watch(root); watch(branch); watch(sidebar);
+    const height = sidebar.getBoundingClientRect().height;
+    if (height <= 0) return;
+    let reserved = branch.getBoundingClientRect().height - root.getBoundingClientRect().height;
+    for (const sibling of sidebar.children) {
+      if (sibling === branch) continue;
+      watch(sibling);
+      const style = win.getComputedStyle(sibling);
+      if (style.display === "none") continue;
+      const nativeList = sibling.querySelector('[data-testid="sidebar-project-workspace-list-scroll"]');
+      reserved += Number(style.flexGrow) > 0
+        ? (nativeList && nativeList.getBoundingClientRect().height > 0
+          ? Math.min(160, height * 0.25) : 0)
+        : sibling.getBoundingClientRect().height;
+    }
+    // Header, borders, padding and outer margins stay outside the scroll body.
+    onHeight(Math.max(0, Math.floor(height - reserved - 38 - 12)));
+  };
+  const mutation = new MutationObserver(schedule);
+  mutation.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
+  measure();
+  return () => {
+    mutation.disconnect(); resize.disconnect();
+    clearTimeout(timer);
+  };
+}
+
 // Fail open when native markers or their safe section boundary disappear.
 export function hideNativeWorkspaces(enabled: boolean) {
   if (Platform.OS !== "web" || !enabled) return () => {};

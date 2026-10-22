@@ -36,7 +36,7 @@ try {
   await page.waitForTimeout(1500);
   for (const name of [EMPTY, FULL, OTHER]) {
     if (await handle(name).count()) continue; // Rerun after an interrupted pass.
-    await page.getByRole("button", { name: "Новое пространство", exact: true }).click();
+    await page.getByRole("button", { name: "Новая папка", exact: true }).click();
     await page.getByLabel("Название", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Создать", exact: true }).click();
     await handle(name).waitFor();

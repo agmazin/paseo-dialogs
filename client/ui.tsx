@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
-import { providerSvg, menuAnchor } from "./web";
+import { providerSvg, menuAnchor, observeSidebarHeight } from "./web";
 import { providerIcons } from "./icons";
 export type MenuAnchor = { x: number; y: number };
 function anchor(e: GestureResponderEvent): MenuAnchor | undefined { return menuAnchor(e); }
@@ -536,18 +536,20 @@ export function Block({
   compact?: boolean;
 }) {
   const p = palette(theme);
-  // Phone drawer: plugin header items are not scrolled by the host, and the native
-  // Workspaces list cannot be hidden there, so the block scrolls on its own.
+  // Header items do not scroll with the host list; keep sibling rows and the footer visible.
   const { height } = useWindowDimensions();
-  const body = compact ? (
-    <ScrollView nestedScrollEnabled style={{ maxHeight: Math.round(height * (Platform.OS === "web" ? 0.7 : 0.55)) }}>
+  const root = useRef<View>(null);
+  const [availableHeight, setAvailableHeight] = useState<number | null>(null);
+  useEffect(() => observeSidebarHeight(root.current, setAvailableHeight), []);
+  const body = (
+    <ScrollView testID="dialogs-scroll" nestedScrollEnabled style={{ minHeight: 0,
+      maxHeight: Math.min(Math.round(height * (Platform.OS === "web" ? 0.7 : 0.55)), availableHeight ?? Infinity) }}>
       {children}
     </ScrollView>
-  ) : (
-    children
   );
   return (
     <View
+      ref={root}
       testID="dialogs-block"
       style={{
         marginTop: 8,
@@ -576,7 +578,7 @@ export function Block({
         </Label>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Новое пространство"
+          accessibilityLabel="Новая папка"
           onPress={(e) => onAdd(anchor(e))}
           style={{
             width: 24,
@@ -799,7 +801,7 @@ export function WorkspaceForm({
     >
       <View style={{ paddingTop: 6, paddingBottom: 4, paddingHorizontal: 10 }}>
         <Label color={p.dim} size={12.5}>
-          Новое рабочее пространство
+          Новая папка
         </Label>
       </View>
       <TextInput
@@ -839,7 +841,7 @@ export function WorkspaceForm({
             lineHeight: 16.2,
           }}
         >
-          Папка: AI OS (public), как у agmazin и ЭкоЭксперт
+          Каталог: AI OS (public), как у agmazin и ЭкоЭксперт
         </Text>
       </View>
       <View style={{ alignItems: "flex-end" }}>

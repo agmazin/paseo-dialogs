@@ -121,7 +121,7 @@ export function register(server: PluginServerContext) {
       const source = await paseo.workspaces.ref(input.sourceId).refresh();
       if (!source || !target || source.archivingAt || source.background ||
           target.archivingAt || target.background || source.workspaceDirectory !== target.workspaceDirectory)
-        throw new Error("Нужно активное пространство в том же каталоге");
+        throw new Error("Нужна активная папка в том же каталоге");
       const client = await transferClient(process.env.PASEO_HOME || join(homedir(), ".paseo"));
       const unread = state.unread[input.agentId];
       const recoveryPath = join(directory, `move-${input.agentId}.json`);

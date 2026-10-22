@@ -62,6 +62,7 @@ test("running, initializing, pending permission and active turn cannot be moved"
 });
 test("stale source and absent session fail before archive", async () => {
   const f = fixture();
+  await assert.rejects(transfer(f.client, {...input,targetId:input.sourceId}, hooks), { message: "Выберите другую папку" });
   await assert.rejects(transfer(f.client, {...input,sourceId:"other"}, hooks), /уже перемещён/);
   assert.deepEqual(f.calls, []);
   f.get().persistence = null;
@@ -72,7 +73,7 @@ test("stale source and absent session fail before archive", async () => {
 test("failed target import rolls back same session and archive state", async () => {
   for (const archived of [false, true]) {
     const f = fixture(archived); f.fail(true);
-    await assert.rejects(transfer(f.client, input, hooks), /восстановлен/);
+    await assert.rejects(transfer(f.client, input, hooks), { message: "Перенос не выполнен. Диалог восстановлен в исходной папке." });
     assert.equal(f.get().workspaceId, "source");
     assert.equal(!!f.get().archivedAt, archived);
     if (!archived) assert.ok(f.calls.includes("import:source"));
