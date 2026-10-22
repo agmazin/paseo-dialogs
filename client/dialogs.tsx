@@ -23,7 +23,7 @@ import { displaySettings } from "../shared/settings";
 import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArchive, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
-import { activityTime, atRest, bucket, runningByParent } from "../shared/model";
+import { activityTime, atRest, bucket, latest, runningByParent } from "../shared/model";
 import { agents, setState, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
 import {
@@ -48,10 +48,16 @@ function Activity({
   id: string;
   onActivity: (id: string, time: string) => void;
 }) {
-  const time = useAgent(id, (a) => a.lastActivityAt);
+  // The host's lastActivityAt also moves on renames and labels (Kanban numbers), so it counts only
+  // while the agent works and at the moment its turn ends.
+  const live = useAgent(id, (a) => ({ status: a.status, time: a.lastActivityAt }));
+  const wasRunning = useRef(false);
   useEffect(() => {
-    if (time) onActivity(id, time);
-  }, [id, time, onActivity]);
+    if (!live) return;
+    const running = live.status === "running" || live.status === "initializing";
+    if ((running || wasRunning.current) && live.time) onActivity(id, live.time);
+    wasRunning.current = running;
+  }, [id, live?.status, live?.time, onActivity]);
   return null;
 }
 function AgentRow({
@@ -83,7 +89,7 @@ function AgentRow({
       theme={theme}
       title={agent.title || "Новый диалог"}
       time={activityTime(
-        time ?? agent.lastUserMessageAt ?? agent.createdAt,
+        latest(time, agent.lastActivityAt, agent.lastUserMessageAt) ?? agent.createdAt,
       )}
       provider={agent.provider}
       status={bucket(agent, unread)}
@@ -290,11 +296,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const groupOrder = reconcileOrder(state.groupOrder, workspaces.map(w => w.id));
   const workspaceById = new Map(workspaces.map(w => [w.id, w]));
   const kids = runningByParent(raw);
-  const all = raw.filter((a) => !a.parentAgentId).sort((a, b) =>
-    (activity[b.id] ?? b.lastUserMessageAt ?? b.createdAt).localeCompare(
-      activity[a.id] ?? a.lastUserMessageAt ?? a.createdAt,
-    ),
-  );
+  const seen = (a: PaseoAgent) => latest(activity[a.id], a.lastActivityAt, a.lastUserMessageAt) ?? a.createdAt;
+  const all = raw.filter((a) => !a.parentAgentId).sort((a, b) => seen(b).localeCompare(seen(a)));
   const status = (a: PaseoAgent) =>
     bucket(
       a,
@@ -427,7 +430,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                   key={k.id}
                   agent={k}
                   theme={p.theme}
-                  time={activity[k.id] ?? k.lastActivityAt ?? undefined}
+                  time={activity[k.id]}
                   sub
                   selected={selected === k.id}
                   onPress={() => openAgent(k.id)}
@@ -661,7 +664,11 @@ export function Archive({
         a.workspaceId === params.workspaceId &&
         a.archivedAt &&
         (a.title ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-    ) ?? []).sort((a, b) => (times[b.id] ?? b.lastUserMessageAt ?? b.createdAt).localeCompare(times[a.id] ?? a.lastUserMessageAt ?? a.createdAt));
+    ) ?? []).sort((a, b) =>
+      (latest(times[b.id], b.lastActivityAt, b.lastUserMessageAt) ?? b.createdAt).localeCompare(
+        latest(times[a.id], a.lastActivityAt, a.lastUserMessageAt) ?? a.createdAt,
+      ),
+    );
   return (
     <View
       style={{

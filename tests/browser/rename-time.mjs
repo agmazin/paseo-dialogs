@@ -1,0 +1,21 @@
+// 0.8.3: renaming a chat (Kanban numbers) keeps its time and place in the Dialogs list.
+import { chromium } from '/Users/agmazin/Library/Developer/paseo-dialogs/node_modules/playwright/index.mjs';
+import { execFileSync } from 'node:child_process';
+const H = '/Users/agmazin/Library/Developer/paseo-kanban/test-home';
+const b = await chromium.launch({ executablePath: '/Users/agmazin/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell' });
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark', locale: 'ru-RU' });
+p.on('pageerror', (e) => console.log('pageerror:', e.message.slice(0, 300)));
+await p.goto('http://127.0.0.1:6786'); await p.waitForTimeout(4000);
+const rows = () => p.evaluate(() => [...document.querySelectorAll('[data-testid^="dialogs-agent-"]')].filter((n) => n.getClientRects().length).map((n) => (n.textContent || '').replace(/\s+/g, ' ').trim()));
+const before = await rows();
+console.log('before', before.join(' | '));
+const target = JSON.parse(execFileSync('/opt/homebrew/bin/paseo', ['ls', '--json', '--home', H], { encoding: 'utf8' })).find((a) => /Тендер/.test(a.name));
+execFileSync('/opt/homebrew/bin/paseo', ['agent', 'update', target.id, '--name', target.name.replace('Тендер', 'Тендер переименован'), '--json', '--home', H]);
+console.log('cli name', JSON.parse(execFileSync('/opt/homebrew/bin/paseo', ['agent', 'inspect', target.id, '--json', '--home', H], { encoding: 'utf8' })).Name ?? '');
+await p.waitForTimeout(1500);
+await p.reload(); await p.waitForTimeout(5000);
+const after = await rows();
+console.log('after ', after.join(' | '));
+await p.screenshot({ path: '/tmp/kbt/d80-rename.png' });
+execFileSync('/opt/homebrew/bin/paseo', ['agent', 'update', target.id, '--name', target.name, '--json', '--home', H]);
+await b.close();

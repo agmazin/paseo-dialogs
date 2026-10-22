@@ -96,3 +96,14 @@ test("the Kanban number before a title is split off for the muted color", async 
   assert.deepEqual(splitKey("GPT-6-Astra: мнение"), { key: null, name: "GPT-6-Astra: мнение" });
   assert.deepEqual(splitKey("Без номера"), { key: null, name: "Без номера" });
 });
+
+test("activity time ignores renames: last message or finished turn, never updatedAt", async () => {
+  const { latest, slim } = await import("../shared/model.ts");
+  assert.equal(latest(null, "2026-10-22T10:00:00.000Z", undefined, "2026-10-22T09:00:00.000Z"), "2026-10-22T10:00:00.000Z");
+  const row = slim({
+    id: "a", provider: "claude", status: "idle", createdAt: "2026-10-20T10:00:00.000Z",
+    lastUserMessageAt: "2026-10-21T22:37:00.000Z", attentionTimestamp: "2026-10-21T22:38:00.000Z",
+    lastActivityAt: "2026-10-22T12:25:00.000Z",
+  });
+  assert.equal(row.lastActivityAt, "2026-10-21T22:38:00.000Z");
+});

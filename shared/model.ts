@@ -81,6 +81,7 @@ export interface FullAgent {
   createdAt: string;
   lastUserMessageAt?: string | null;
   lastActivityAt?: string | null;
+  attentionTimestamp?: string | null;
   requiresAttention?: boolean;
   attentionReason?: string | null;
   pendingPermissions?: readonly unknown[] | null;
@@ -88,6 +89,20 @@ export interface FullAgent {
   parentAgentId?: string | null;
   labels?: Readonly<Record<string, string>>;
 }
+// The latest of several ISO times (all UTC "Z", so they compare as strings).
+export function latest(...times: (string | null | undefined)[]) {
+  let best: string | null = null;
+  for (const t of times) if (t && (!best || t > best)) best = t;
+  return best;
+}
+
+// Paseo moves updatedAt (and the lastActivityAt shown to clients) on renames and labels too, so
+// Kanban numbering made every renamed dialog look active at the same minute. Real activity is
+// Alexander's last message and the end of the agent's last turn; the server adds turn times it saw.
+export function realActivity(a: FullAgent) {
+  return latest(a.lastUserMessageAt, a.attentionTimestamp);
+}
+
 export function slim(a: FullAgent) {
   return {
     id: a.id,
@@ -101,7 +116,7 @@ export function slim(a: FullAgent) {
     archivedAt: a.archivedAt ?? null,
     createdAt: a.createdAt,
     lastUserMessageAt: a.lastUserMessageAt ?? null,
-    lastActivityAt: a.lastActivityAt ?? null,
+    lastActivityAt: realActivity(a),
     requiresAttention: !!a.requiresAttention,
     attentionReason: a.attentionReason ?? null,
     pendingPermissionCount: a.pendingPermissions?.length ?? 0,

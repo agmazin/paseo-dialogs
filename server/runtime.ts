@@ -18,7 +18,7 @@ import {
 } from "../shared/contracts";
 import { transfer } from "./transfer";
 import { transferClient } from "./transfer-client";
-import { autoTitle, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
+import { autoTitle, latest, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import type { PaseoApi } from "@getpaseo/client";
 const directory = join(
@@ -34,6 +34,8 @@ type State = {
   unread: Record<string, string>;
   candidates: Record<string, { title: string | null }>;
   actions: Record<string, number>;
+  // When a turn of an agent started or ended: real activity, unlike Paseo's updatedAt.
+  turns: Record<string, string>;
 };
 export function register(server: PluginServerContext) {
   const moving = new Set<string>();
@@ -45,6 +47,7 @@ export function register(server: PluginServerContext) {
     unread: {},
     candidates: {},
     actions: {},
+    turns: {},
   };
   const ready = (async () => {
     try {
@@ -53,6 +56,7 @@ export function register(server: PluginServerContext) {
         ...stateSchema.parse(saved),
         candidates: saved.candidates ?? {},
         actions: saved.actions ?? {},
+        turns: saved.turns ?? {},
       };
     } catch (e) {
       if ((e as { code?: string }).code !== "ENOENT")
@@ -182,6 +186,23 @@ export function register(server: PluginServerContext) {
   };
   const recent = (a: FullAgent, b: FullAgent) =>
     (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt);
+  const withTurns = (a: FullAgent) => {
+    const row = slim(a);
+    return { ...row, lastActivityAt: latest(row.lastActivityAt, state.turns[a.id]) };
+  };
+  let turnSave: ReturnType<typeof setTimeout> | undefined;
+  const markTurn = (id: string) => {
+    state.turns[id] = new Date().toISOString();
+    if (!turnSave) turnSave = setTimeout(() => ((turnSave = undefined), void save().catch(() => {})), 2000);
+  };
+  const offTurnStarted = server.on("agent.turn_started", async ({ agent }) => {
+    await ready;
+    markTurn(agent.id);
+  });
+  const offTurnMarked = server.on("agent.turn_ended", async ({ agent }) => {
+    await ready;
+    markTurn(agent.id);
+  });
   server.handle(readAgents, async ({ archives, limit }, { paseo }) => {
     const all = await topLevelAgents(paseo, true);
     const open = new Set(archives);
@@ -193,10 +214,10 @@ export function register(server: PluginServerContext) {
       if (open.has(a.workspaceId)) archived.set(a.workspaceId, [...(archived.get(a.workspaceId) ?? []), a]);
     }
     const shown = [...archived.values()].flatMap((list) => list.sort(recent).slice(0, limit));
-    return { agents: [...all.filter((a) => !a.archivedAt), ...shown].map(slim), archiveCounts };
+    return { agents: [...all.filter((a) => !a.archivedAt), ...shown].map(withTurns), archiveCounts };
   });
   server.handle(readArchive, async ({ workspaceId }, { paseo }) => ({
-    agents: (await topLevelAgents(paseo)).filter((a) => a.archivedAt && a.workspaceId === workspaceId).map(slim),
+    agents: (await topLevelAgents(paseo)).filter((a) => a.archivedAt && a.workspaceId === workspaceId).map(withTurns),
   }));
   server.handle(readState, async (_, { paseo }) => {
     await ready;
@@ -384,6 +405,9 @@ export function register(server: PluginServerContext) {
     await orderQueue;
     offCreated();
     offEnded();
+    offTurnStarted();
+    offTurnMarked();
+    if (turnSave) (clearTimeout(turnSave), await save().catch(() => {}));
     await queue;
   };
 }

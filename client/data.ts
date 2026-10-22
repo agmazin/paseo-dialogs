@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PaseoApi, PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import type { z } from "zod";
 import { readAgents, readState, type SlimAgent, type stateSchema } from "../shared/contracts";
-import { runningSubagent, slim, topLevel } from "../shared/model";
+import { latest, runningSubagent, slim, topLevel } from "../shared/model";
 export async function agents(paseo: PaseoApi) {
   let cursor: string | undefined;
   const all: PaseoAgent[] = [];
@@ -36,7 +36,7 @@ type Data = {
   state: z.output<typeof stateSchema>;
 };
 const byActivity = (a: SlimAgent, b: SlimAgent) =>
-  (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt);
+  (b.lastActivityAt ?? b.createdAt).localeCompare(a.lastActivityAt ?? a.createdAt);
 
 // The phone talks to the Mac through the relay. Agent rows are built on the Mac (slim, about
 // 15 fields); events of the plugin's single subscriptions (opened in the client entry) patch the
@@ -74,7 +74,9 @@ export function useData(hostId: string) {
       patch((data) => {
         const rest = data.agents.filter((a) => a.id !== id);
         if (update.kind !== "upsert" || !(topLevel(update.agent) || runningSubagent(update.agent))) return { ...data, agents: rest };
-        return { ...data, agents: [...rest, slim(update.agent)].sort(byActivity) };
+        // Events carry no turn times the server saw: a row's time never goes back.
+        const row = slim(update.agent);
+        return { ...data, agents: [...rest, { ...row, lastActivityAt: latest(row.lastActivityAt, old?.lastActivityAt) }].sort(byActivity) };
       });
     });
     const offWorkspaces = paseo.workspaces.subscribe(() => {
