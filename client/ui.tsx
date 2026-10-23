@@ -429,7 +429,7 @@ export function AgentLine({
     >
       {(cut) => (
         <>
-          {busy && onToggle && (
+          {(open || busy) && onToggle && (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={open ? "Скрыть подагентов" : "Показать подагентов"}

@@ -573,3 +573,21 @@ export function openAgentDraft(workspaceId: string) {
   nav.dispatchEvent(new nav.PopStateEvent("popstate", { state: nav.history.state }));
   return true;
 }
+
+// Workspace open intents pin agent tabs like History; unpinned archived tabs are pruned.
+export function openArchivedAgent(agentId: string, workspaceId?: string) {
+  if (Platform.OS !== "web" || !agentId) return false;
+  const server = /^\/h\/([^/]+)\//.exec(window.location.pathname)?.[1];
+  if (!server) return false;
+  const nav = window as unknown as {
+    history: { state: unknown; pushState(state: unknown, title: string, url: string): void };
+    dispatchEvent(event: unknown): void;
+    PopStateEvent: new (type: string, init: { state: unknown }) => unknown;
+  };
+  const route = workspaceId
+    ? `/h/${server}/workspace/${encodeURIComponent(workspaceId)}?open=agent:${encodeURIComponent(agentId)}`
+    : `/h/${server}/agent/${encodeURIComponent(agentId)}`;
+  nav.history.pushState(nav.history.state, "", route);
+  nav.dispatchEvent(new nav.PopStateEvent("popstate", { state: nav.history.state }));
+  return true;
+}

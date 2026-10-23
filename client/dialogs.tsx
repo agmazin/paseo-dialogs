@@ -25,7 +25,7 @@ import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, atRest, bucket, latest, runningByParent } from "../shared/model";
 import { agents, setState, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent } from "./web";
 import {
   palette,
   AgentLine,
@@ -266,9 +266,9 @@ export function Dialogs(p: PluginSidebarItemProps) {
     onSuccess: (state) => setState(qc, p.host.id, state),
     onError: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
-  const openAgent = (id: string) => {
+  const openAgent = (id: string, archived = false, workspaceId?: string | null) => {
     setSelected(id);
-    p.openScreen({ screenId: "navigate", params: { agentId: id } });
+    p.openScreen({ screenId: "navigate", params: { agentId: id, ...(archived ? { archived: "true", ...(workspaceId ? { workspaceId } : {}) } : {}) } });
   };
   const transferMutation = useMutation({
     mutationFn: async (input: { agentId: string; sourceId: string; targetId: string; open: boolean }) => {
@@ -423,7 +423,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                 subagents={busy.length}
                 open={open}
                 onToggle={() => setBranches((old) => ({ ...old, [a.id]: !old[a.id] }))}
-                onPress={() => openAgent(a.id)}
+                onPress={() => openAgent(a.id, !!a.archivedAt, a.workspaceId)}
               />
               {open && busy.map((k) => (
                 <AgentRow
@@ -549,6 +549,7 @@ export function Destination({
       started.current = key;
       if (!navigation) throw new Error("Навигация недоступна на этом клиенте");
       if (params.agentId) {
+        if (params.archived === "true" && openArchivedAgent(params.agentId, params.workspaceId)) return;
         if (params.workspaceId) {
           await paseo.agents.ref(params.agentId).refresh();
           navigation.openWorkspace({ workspaceId: params.workspaceId });
@@ -702,7 +703,9 @@ export function Archive({
             agent={a}
             time={times[a.id]}
             theme={theme}
-            onPress={() => navigation?.openAgent({ agentId: a.id })}
+            onPress={() => {
+              if (!openArchivedAgent(a.id, a.workspaceId ?? undefined)) navigation?.openAgent({ agentId: a.id });
+            }}
           />
         ))}
       </ScrollView>
