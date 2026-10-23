@@ -1,0 +1,22 @@
+// 0.8.4: "+" -> agent opens Paseo's own draft tab, where Claude or Codex is picked before the first message.
+import { chromium } from '/Users/agmazin/Library/Developer/paseo-dialogs/node_modules/playwright/index.mjs';
+import { execFileSync } from 'node:child_process';
+const H = '/Users/agmazin/Library/Developer/paseo-kanban/test-home';
+const count = () => JSON.parse(execFileSync('/opt/homebrew/bin/paseo', ['ls', '-a', '--json', '--home', H], { encoding: 'utf8' })).length;
+const b = await chromium.launch({ executablePath: '/Users/agmazin/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell' });
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark', locale: 'ru-RU' });
+p.on('pageerror', (e) => console.log('pageerror:', e.message.slice(0, 200)));
+await p.goto('http://127.0.0.1:6786'); await p.waitForTimeout(3500);
+const before = count();
+await p.getByText('ЭкоЭксперт', { exact: true }).first().hover(); await p.waitForTimeout(300);
+await p.getByLabel('Добавить в ЭкоЭксперт').first().click({ force: true }); await p.waitForTimeout(600);
+await p.screenshot({ path: '/tmp/kbt/96-plus-menu.png' });
+await p.getByText('Агент', { exact: true }).first().click(); await p.waitForTimeout(3000);
+const tabs = await p.evaluate(() => [...document.querySelectorAll('[data-testid^="workspace-tab-"]')].filter((n) => n.getClientRects().length).map((n) => (n.textContent || '').trim().slice(0, 16)));
+console.log('agents created:', count() - before, '| draft tab:', tabs.includes('Новый агент'), '| url', p.url().replace(/^https?:\/\/[^/]+/, ''));
+await p.screenshot({ path: '/tmp/kbt/97-draft.png' });
+await p.getByText('Выберите модель').first().click(); await p.waitForTimeout(1200);
+const menu = await p.evaluate(() => document.body.innerText);
+console.log('providers in picker: claude', /Claude|Opus|Sonnet|Haiku/.test(menu), '| codex', /Codex|GPT/.test(menu));
+await p.screenshot({ path: '/tmp/kbt/98-picker.png' });
+await b.close();

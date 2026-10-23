@@ -556,3 +556,20 @@ export function setHoverTitle(node: unknown, text: string | undefined) {
   if (text) el.setAttribute("title", text);
   else el.removeAttribute("title");
 }
+
+// "+" -> new dialog: Paseo's own draft tab, where Claude or Codex is chosen before the first message.
+// Plugins have no API for it; the workspace route takes ?open=draft:<id> (Paseo 0.12, parseWorkspaceOpenIntent),
+// and the router follows a pushed address on popstate. Returns false where it cannot (phones).
+export function openAgentDraft(workspaceId: string) {
+  if (Platform.OS !== "web" || !/^[A-Za-z0-9._~-]+$/.test(workspaceId)) return false;
+  const server = /^\/h\/([^/]+)\//.exec(window.location.pathname)?.[1];
+  if (!server) return false;
+  const nav = window as unknown as {
+    history: { state: unknown; pushState(state: unknown, title: string, url: string): void };
+    dispatchEvent(event: unknown): void;
+    PopStateEvent: new (type: string, init: { state: unknown }) => unknown;
+  };
+  nav.history.pushState(nav.history.state, "", `/h/${server}/workspace/${workspaceId}?open=draft:dialogs-${Date.now()}`);
+  nav.dispatchEvent(new nav.PopStateEvent("popstate", { state: nav.history.state }));
+  return true;
+}

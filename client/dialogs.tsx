@@ -25,7 +25,7 @@ import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { activityTime, atRest, bucket, latest, runningByParent } from "../shared/model";
 import { agents, setState, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft } from "./web";
 import {
   palette,
   AgentLine,
@@ -566,6 +566,8 @@ export function Destination({
         return;
       }
       if (params.action === "agent") {
+        if (openAgentDraft(id)) return;
+        // Phones: no draft route for plugins, so the new dialog takes the group's last provider.
         const all = (await getAgents({ archives: [], limit: 0 })).agents;
         const last =
           all
