@@ -44,8 +44,20 @@ export function runningByParent<T extends { status: string; archivedAt?: string 
     if (a.parentAgentId && runningSubagent(a)) kids.set(a.parentAgentId, [...(kids.get(a.parentAgentId) ?? []), a]);
   return kids;
 }
-export function autoTitle(title: string | null | undefined, prompt: string) {
-  return !title?.trim() || title.trim() === prompt.trim().slice(0, 60);
+export function titleWithoutKey(title: string | null | undefined, key?: string) {
+  const text = title?.trim() ?? "";
+  return key && text.startsWith(`${key}: `) ? text.slice(key.length + 2) : text;
+}
+export function autoTitle(title: string | null | undefined, prompt: string, key?: string) {
+  const text = titleWithoutKey(title, key);
+  return !text || text === prompt.trim().slice(0, 60);
+}
+export function replacementTitle(current: FullAgent, previous: FullAgent, prompt: string, title: string) {
+  const key = current.labels?.["kanban.key"];
+  if (current.archivedAt || !topLevel(current) ||
+      !autoTitle(current.title, prompt, key) ||
+      titleWithoutKey(current.title, key) !== titleWithoutKey(previous.title, previous.labels?.["kanban.key"])) return null;
+  return key ? `${key}: ${title}` : title;
 }
 export function validTitle(text: string) {
   const t = text.trim();

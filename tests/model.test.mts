@@ -107,3 +107,22 @@ test("activity time ignores renames: last message or finished turn, never update
   });
   assert.equal(row.lastActivityAt, "2026-10-21T22:38:00.000Z");
 });
+
+test("automatic titles tolerate only their own Kanban prefix and preserve it across a race", async () => {
+  const { replacementTitle } = await import("../shared/model.ts");
+  const prompt = "Проверь автоматическое название диалога о заявках. Ответь только словом Проверено";
+  const initial = prompt.slice(0, 60);
+  const base = { id: "a", provider: "claude", status: "idle", createdAt: "2026-10-23" };
+  const plain = { ...base, title: initial };
+  const numbered = { ...plain, title: `AGM-11: ${initial}`, labels: { "kanban.key": "AGM-11" } };
+  assert.equal(autoTitle(numbered.title, prompt, "AGM-11"), true);
+  assert.equal(autoTitle(numbered.title, prompt), false);
+  assert.equal(replacementTitle(numbered, plain, prompt, "Проверка заявок"), "AGM-11: Проверка заявок");
+  assert.equal(replacementTitle(plain, plain, prompt, "Проверка заявок"), "Проверка заявок");
+  for (const title of ["Моё название", "AGM-11: Моё название", `ECO-17: ${initial}`]) {
+    assert.equal(autoTitle(title, prompt, "AGM-11"), false);
+    assert.equal(replacementTitle({ ...numbered, title }, numbered, prompt, "Проверка заявок"), null);
+  }
+  assert.equal(replacementTitle({ ...numbered, archivedAt: "2026-10-23" }, numbered, prompt, "Проверка заявок"), null);
+  assert.equal(replacementTitle({ ...numbered, parentAgentId: "p" }, numbered, prompt, "Проверка заявок"), null);
+});

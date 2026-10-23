@@ -18,7 +18,7 @@ import {
 } from "../shared/contracts";
 import { transfer } from "./transfer";
 import { transferClient } from "./transfer-client";
-import { autoTitle, latest, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
+import { autoTitle, replacementTitle, latest, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import type { PaseoApi } from "@getpaseo/client";
 const directory = join(
@@ -268,6 +268,7 @@ export function register(server: PluginServerContext) {
       if (!workspace || workspace.background || workspace.archivingAt) return;
       state.candidates[agent.id] = { title: agent.title };
       await save();
+      console.log("Диалоги: кандидат автоназвания записан", agent.id);
     },
   );
   const offEnded = server.on(
@@ -320,10 +321,12 @@ export function register(server: PluginServerContext) {
           !current ||
           current.agent.archivedAt ||
           !topLevel(current.agent) ||
-          !autoTitle(candidate.title, prompt) ||
-          !autoTitle(current.agent.title, prompt)
-        )
+          !autoTitle(candidate.title, prompt, current.agent.labels?.["kanban.key"]) ||
+          !autoTitle(current.agent.title, prompt, current.agent.labels?.["kanban.key"])
+        ) {
+          console.log("Диалоги: автоназвание пропущено, имя изменено", agent.id);
           return;
+        }
         const envText = await readFile(
           "/Users/agmazin/Yandex.Disk.localized/public/projects/agmazin/.secrets/cliproxy.env",
           "utf8",
@@ -369,12 +372,9 @@ export function register(server: PluginServerContext) {
         const title = validTitle(data.choices?.[0]?.message?.content ?? "");
         if (!title) throw new Error("invalid title");
         const latest = await handle.refresh();
-        if (
-          !latest ||
-          latest.agent.archivedAt ||
-          latest.agent.title !== current.agent.title
-        )
-          return;
+        if (!latest) return;
+        const name = replacementTitle(latest.agent, current.agent, prompt, title);
+        if (!name) return;
         await promisify(execFile)(
           "/opt/homebrew/bin/paseo",
           [
@@ -382,7 +382,7 @@ export function register(server: PluginServerContext) {
             "update",
             agent.id,
             "--name",
-            title,
+            name,
             "--json",
             "--home",
             process.env.PASEO_HOME || join(homedir(), ".paseo"),
