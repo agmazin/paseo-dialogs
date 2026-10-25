@@ -22,7 +22,7 @@ import {
 import { firstPrompt } from "./first-prompt";
 import { transfer } from "./transfer";
 import { transferClient } from "./transfer-client";
-import { autoTitle, replacementTitle, latest, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
+import { autoTitle, replacementTitle, latest, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import type { PaseoApi } from "@getpaseo/client";
 const directory = join(
@@ -185,7 +185,7 @@ export function register(server: PluginServerContext) {
     do {
       const r = await paseo.agents.list({ filter: { includeArchived: true }, page: { limit: 200, cursor } });
       for (const { agent } of r.entries)
-        if (topLevel(agent) || (withRunningSubagents && runningSubagent(agent))) rows.push(agent);
+        if (topLevel(agent) || (withRunningSubagents && !agent.archivedAt)) rows.push(agent);
       cursor = r.pageInfo.nextCursor ?? undefined;
     } while (cursor);
     return rows;

@@ -47,7 +47,15 @@ test('real RPC handlers persist and reload order, archive then restore appends, 
     await writeFile(join(directory,'state.json'),JSON.stringify({collapsed:{old:true},archives:{},unread:{},candidates:{},actions:{}}));
     const { register } = load(resolve('server/runtime.ts'));
     let ids = ['a', 'b', 'c'];
-    const paseo = {workspaces:{list:async () => ({entries:ids.map(id=>({id})),pageInfo:{}})}};
+    const fixture = [
+      { id: "root", status: "idle" },
+      { id: "bridge", status: "idle", parentAgentId: "root" },
+      { id: "ask", status: "idle", labels: { "paseo.parent-agent-id": "bridge", kanban: "ask" } },
+      { id: "permission", status: "running", parentAgentId: "bridge", pendingPermissions: [{}] },
+      { id: "archived-child", status: "idle", parentAgentId: "root", archivedAt: "2026-10-25" },
+    ].map(a => ({ provider: "codex", createdAt: "2026-10-25", workspaceId: "a", ...a }));
+    const paseo = {workspaces:{list:async () => ({entries:ids.map(id=>({id})),pageInfo:{}})},
+      agents:{list:async () => ({entries:fixture.map(agent=>({agent})),pageInfo:{}})}};
     function boot() {
       const handlers = new Map<string, any>(), events = new Map<string, any>();
       const stop = register({handle:(contract: any, fn: any)=>handlers.set(contract.name, fn),
@@ -55,6 +63,11 @@ test('real RPC handlers persist and reload order, archive then restore appends, 
       return {stop, events, call:(name: string, input = {}) => handlers.get('dialogs.'+name)(input,{paseo})};
     }
     const first = boot();
+    const rows = (await first.call("agents", { archives: [], limit: 0 })).agents;
+    assert.deepEqual(rows.map((a: any) => a.id), ["root", "bridge", "ask", "permission"]);
+    assert.equal(rows.find((a: any) => a.id === "ask").waitReason, "ask");
+    assert.equal(rows.find((a: any) => a.id === "ask").parentAgentId, "bridge");
+    assert.equal(rows.find((a: any) => a.id === "permission").waitReason, "permission");
     assert.deepEqual((await first.call('state')).groupOrder, ids);
     await first.call('preference', {section:'collapsed',id:'a',value:true});
     await first.call('reorder-groups', {id:'c',beforeId:'a'});

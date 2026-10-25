@@ -154,12 +154,16 @@ export function Badge({
   theme,
   cut,
   mini = false,
+  hint,
 }: {
   status: Status;
   theme: Theme;
   cut?: string;
   mini?: boolean;
+  hint?: string;
 }) {
+  const node = useRef<View>(null);
+  useEffect(() => setHoverTitle(node.current, hint), [hint]);
   const p = palette(theme),
     spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -190,6 +194,8 @@ export function Badge({
     : { position: "absolute", right: need ? -4 : -2, bottom: need ? -4 : -2 };
   return (
     <View
+      ref={node}
+      testID={`dialogs-status-${status}`}
       accessibilityLabel={statusNames[status]}
       style={{
         width: size,
@@ -389,6 +395,8 @@ export function AgentLine({
   old = false,
   sub = false,
   subagents = 0,
+  waiting = 0,
+  waitHint,
   open = false,
   onToggle,
   selected = false,
@@ -406,6 +414,8 @@ export function AgentLine({
   sub?: boolean;
   /** Running subagents of a dialog at rest: a pair of circles and a chevron. */
   subagents?: number;
+  waiting?: number;
+  waitHint?: string;
   open?: boolean;
   onToggle?: () => void;
   selected?: boolean;
@@ -417,7 +427,8 @@ export function AgentLine({
   const named = splitKey(title);
   const small = old || sub,
     // Permission and error badges stay: they need the user more than working subagents do.
-    busy = subagents > 0 && atRest(status);
+    busy = subagents > 0 && atRest(status),
+    needs = status === "needs_input" || waiting > 0;
   return (
     <Row
       testID={testID}
@@ -427,11 +438,11 @@ export function AgentLine({
       indent={small ? 44 : 30}
       selected={selected}
       onPress={onPress}
-      hint={busy ? `Работают подагенты: ${subagents}` : undefined}
+      hint={waitHint ?? (waiting ? `Ждут тебя: ${waiting}` : busy ? `Работают подагенты: ${subagents}` : undefined)}
     >
       {(cut, hover) => (
         <>
-          {(open || busy) && onToggle && (
+          {(open || busy || waiting > 0) && onToggle && (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={open ? "Скрыть подагентов" : "Показать подагентов"}
@@ -446,7 +457,9 @@ export function AgentLine({
           )}
           <View style={{ width: 16, height: 16, flexShrink: 0 }}>
             <ProviderIcon provider={provider} theme={theme} old={old} />
-            {sub ? (
+            {needs && !old ? (
+              <Badge theme={theme} status="needs_input" cut={cut} hint={waiting ? `Ждут тебя: ${waiting}` : waitHint} />
+            ) : sub ? (
               <SubagentBadge theme={theme} cut={cut} />
             ) : busy ? (
               <SubagentBadge theme={theme} cut={cut} pair onPress={onToggle} />
