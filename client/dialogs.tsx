@@ -275,7 +275,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
   });
   const openAgent = (id: string, archived = false, workspaceId?: string | null) => {
     setSelected(id);
-    p.openScreen({ screenId: "navigate", params: { agentId: id, ...(archived ? { archived: "true", ...(workspaceId ? { workspaceId } : {}) } : {}) } });
+    p.openScreen({ screenId: "navigate", params: { agentId: id, request: `${Date.now()}-${Math.random()}`, ...(archived ? { archived: "true", ...(workspaceId ? { workspaceId } : {}) } : {}) } });
   };
   const transferMutation = useMutation({
     mutationFn: async (input: { agentId: string; sourceId: string; targetId: string; open: boolean }) => {
@@ -457,7 +457,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                   time={activity[k.id]}
                   sub
                   selected={selected === k.id}
-                  onPress={() => openAgent(k.id)}
+                  onPress={() => openAgent(k.id, !!k.archivedAt, k.workspaceId)}
                 />
               ))}
             </View>
@@ -566,14 +566,20 @@ export function Destination({
   useLayoutEffect(() => {
     const key = JSON.stringify(params);
     if (started.current === key) return;
+    let cancelled = false;
+    setError("");
     void (async () => {
-      // The router commits its address after mounting a cached plugin screen.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      if (!isNavigationScreenActive(params) || started.current === key) return;
+      // Retained screens can mount before the router commits the matching address.
+      for (let attempt = 0; !isNavigationScreenActive(params); attempt++) {
+        if (cancelled) return;
+        if (attempt >= 100) throw new Error("Не удалось открыть диалог. Повторите клик");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (cancelled || started.current === key) return;
       started.current = key;
       if (!navigation) throw new Error("Навигация недоступна на этом клиенте");
       if (params.agentId) {
-        if (params.archived === "true" && openArchivedAgent(params.agentId, params.workspaceId)) return;
+        if (params.archived === "true" && await openArchivedAgent(params.agentId, params.workspaceId, () => !cancelled && isNavigationScreenActive(params))) return;
         if (params.workspaceId) {
           await paseo.agents.ref(params.agentId).refresh();
           navigation.openWorkspace({ workspaceId: params.workspaceId });
@@ -655,11 +661,10 @@ export function Destination({
       }
       navigation.openWorkspace({ workspaceId: id });
       if (terminalId) await activateTerminalTab(terminalId);
-    })().catch((e) =>
-      setError(
-        e instanceof Error ? e.message : "Не удалось выполнить действие",
-      ),
-    );
+    })().catch((e) => {
+      if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось выполнить действие");
+    });
+    return () => { cancelled = true; };
   }, [navigation, params, paseo, claim]);
   return error ? (
     <View style={{ padding: 16 }}>
@@ -727,8 +732,8 @@ export function Archive({
             agent={a}
             time={times[a.id]}
             theme={theme}
-            onPress={() => {
-              if (!openArchivedAgent(a.id, a.workspaceId ?? undefined)) navigation?.openAgent({ agentId: a.id });
+            onPress={async () => {
+              if (!await openArchivedAgent(a.id, a.workspaceId ?? undefined)) navigation?.openAgent({ agentId: a.id });
             }}
           />
         ))}

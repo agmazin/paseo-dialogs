@@ -574,8 +574,39 @@ export function openAgentDraft(workspaceId: string) {
   return true;
 }
 
-// Workspace open intents pin agent tabs like History; unpinned archived tabs are pruned.
-export function openArchivedAgent(agentId: string, workspaceId?: string) {
+async function revealPinnedAgent(server: string, workspaceId: string, agentId: string, stillCurrent: () => boolean) {
+  const runtime = window as unknown as { __r?: (id: number) => Record<string, unknown> };
+  const doc = document as unknown as { scripts: Iterable<{ src: string }> };
+  if (!runtime.__r) return false;
+  try {
+    for (const script of doc.scripts) {
+      if (!script.src.includes("/static/js/")) continue;
+      const source = await (await fetch(script.src)).text();
+      for (const line of source.split("\n")) {
+        if (!["hideAgent:", "unhideAgent:", "closeTab:"].every(key => line.includes(key))) continue;
+        const match = line.match(/\},(\d+),\[[\d,]*\]\);$/);
+        if (!match) continue;
+        for (const value of Object.values(runtime.__r(Number(match[1])))) {
+          const store = value as { getState?: () => any } | null;
+          const state = store?.getState?.();
+          if (!state?.layoutByWorkspace || typeof state.openTab !== "function" || typeof state.unhideAgent !== "function") continue;
+          if (!stillCurrent()) return true;
+          const workspaceKey = `${server}:${workspaceId}`;
+          state.unhideAgent(workspaceKey, agentId);
+          return !!state.openTab({ workspaceKey, target: { kind: "agent", agentId }, pin: true });
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+declare const fetch: (url: string) => Promise<{ text(): Promise<string> }>;
+
+// Retained workspaces do not always consume a second deferred open intent.
+// Reveal and pin through the validated host store, falling back to the route on other hosts.
+export async function openArchivedAgent(agentId: string, workspaceId?: string, stillCurrent = () => true) {
   if (Platform.OS !== "web" || !agentId) return false;
   const server = /^\/h\/([^/]+)\//.exec(window.location.pathname)?.[1];
   if (!server) return false;
@@ -584,7 +615,11 @@ export function openArchivedAgent(agentId: string, workspaceId?: string) {
     dispatchEvent(event: unknown): void;
     PopStateEvent: new (type: string, init: { state: unknown }) => unknown;
   };
-  const route = workspaceId
+  const revealed = workspaceId ? await revealPinnedAgent(server, workspaceId, agentId, stillCurrent) : false;
+  if (!stillCurrent()) return true;
+  const route = revealed
+    ? `/h/${server}/workspace/${encodeURIComponent(workspaceId!)}`
+    : workspaceId
     ? `/h/${server}/workspace/${encodeURIComponent(workspaceId)}?open=agent:${encodeURIComponent(agentId)}`
     : `/h/${server}/agent/${encodeURIComponent(agentId)}`;
   nav.history.pushState(nav.history.state, "", route);

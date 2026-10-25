@@ -1,0 +1,50 @@
+{
+  "client": "0.13.0",
+  "daemon": "0.12.0",
+  "electron": "44.2.0",
+  "routeCommitDelayMs": 250,
+  "activeIterations": 4,
+  "hotReloads": 3,
+  "crossWorkspace": true,
+  "checks": [
+    {
+      "kind": "active",
+      "action": "cross",
+      "reopened": true
+    },
+    {
+      "kind": "active",
+      "action": "Cmd+W",
+      "reopened": true
+    },
+    {
+      "kind": "active",
+      "action": "cross",
+      "reopened": true
+    },
+    {
+      "kind": "active",
+      "action": "Cmd+W",
+      "reopened": true
+    },
+    {
+      "kind": "archive",
+      "action": "cross",
+      "reopened": true
+    },
+    {
+      "kind": "archive",
+      "action": "Cmd+W",
+      "reopened": true
+    },
+    {
+      "kind": "archive",
+      "action": "cross",
+      "reopened": true
+    },
+    {
+      "kind": "full-archive-screen",
+      "reopened": true
+    }
+  ]
+}
