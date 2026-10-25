@@ -591,3 +591,15 @@ export function openArchivedAgent(agentId: string, workspaceId?: string) {
   nav.dispatchEvent(new nav.PopStateEvent("popstate", { state: nav.history.state }));
   return true;
 }
+
+export function bindAgentMenu(node: unknown, onMenu?: (anchor: { x: number; y: number }) => void) {
+  if (Platform.OS !== "web" || !node || !onMenu) return;
+  const root = node as any;
+  const open = (event: any) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onMenu({ x: event.clientX, y: event.clientY - 30 });
+  };
+  root.addEventListener("contextmenu", open);
+  return () => root.removeEventListener("contextmenu", open);
+}

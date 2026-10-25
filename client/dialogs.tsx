@@ -23,9 +23,10 @@ import { displaySettings } from "../shared/settings";
 import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArchive, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
+import { archiveImpact } from "../shared/archive";
 import { activityTime, atRest, bucket, latest, runningByParent } from "../shared/model";
 import { agents, setState, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent, bindAgentMenu } from "./web";
 import {
   palette,
   AgentLine,
@@ -35,6 +36,7 @@ import {
   GroupMenuView,
   Label,
   MenuView,
+  MenuLine,
   MoreLine,
   WorkspaceForm,
   type Theme,
@@ -71,6 +73,7 @@ function AgentRow({
   open,
   onToggle,
   sub,
+  onMenu,
 }: {
   agent: PaseoAgent;
   theme: Theme;
@@ -82,9 +85,12 @@ function AgentRow({
   open?: boolean;
   onToggle?: () => void;
   sub?: boolean;
+  onMenu?: (anchor?: MenuAnchor) => void;
 }) {
+  const node = useRef<View>(null);
+  useEffect(() => bindAgentMenu(node.current, onMenu), [onMenu]);
   return (
-    <View testID={`dialogs-agent-${agent.id}`}>
+    <View ref={node} testID={`dialogs-agent-${agent.id}`}>
     <AgentLine
       theme={theme}
       title={agent.title || "Новый диалог"}
@@ -100,6 +106,7 @@ function AgentRow({
       onToggle={onToggle}
       selected={selected}
       onPress={onPress}
+      onMenu={onMenu}
     />
     </View>
   );
@@ -213,8 +220,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
   useEffect(() => hideNativeWorkspaces(hideNative), [hideNative]);
   const [popup, setPopup] = useState<{ Content: ComponentType<PluginPopoverProps>; anchor: MenuAnchor; width: number } | null>(null);
   const [popupHeight, setPopupHeight] = useState(220);
-  const show = (Content: ComponentType<PluginPopoverProps>, anchor: MenuAnchor | undefined, width: number) => {
-    if (p.layout.compact || !anchor) { p.openPopover(Content); return; }
+  const show = (Content: ComponentType<PluginPopoverProps>, anchor: MenuAnchor | undefined, width: number, overSidebar = false) => {
+    if ((p.layout.compact && !overSidebar) || !anchor) { p.openPopover(Content); return; }
     setPopup({ Content, anchor, width });
   };
   const closePopup = () => setPopup(null);
@@ -328,6 +335,22 @@ export function Dialogs(p: PluginSidebarItemProps) {
       await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
     }
   };
+  const archiveDialog = async (agent: PaseoAgent) => {
+    try {
+      const records = (await agents(d.paseo, true)).filter(a => !a.archivedAt);
+      const { children, working } = archiveImpact(agent, records);
+      const message = [working ? "Агент ещё работает. Архивация остановит его или работающих подагентов." : "Диалог останется в Архиве.",
+        children ? `Вместе с ним уйдут в архив подагенты: ${children}.` : ""].filter(Boolean).join("\n\n");
+      if ((working || children > 0) && !await confirmDestructive({ title: "Архивировать диалог?", message, confirm: "Архивировать", cancel: "Отмена" })) return;
+      await d.paseo.agents.ref(agent.id).archive();
+      await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Не удалось архивировать диалог"); }
+  };
+  const dialogMenu = (agent: PaseoAgent, anchor?: MenuAnchor) => show(props => (
+    <View testID="dialogs-agent-menu" style={{ padding: 6, borderRadius: 12, backgroundColor: palette(props.theme).menu, borderWidth: 1, borderColor: palette(props.theme).line }}>
+      <MenuLine theme={props.theme} label="Архивировать" icon="Archive" onPress={() => { props.close(); void archiveDialog(agent); }} />
+    </View>
+  ), anchor, 230, true);
   menuFor.current = (id, anchor) => {
     const w = workspaceById.get(id);
     if (!w) return;
@@ -412,6 +435,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
             <View key={a.id}>
               <AgentRow
                 agent={a}
+                onMenu={a.archivedAt ? undefined : anchor => dialogMenu(a, anchor)}
                 theme={p.theme}
                 time={activity[a.id]}
                 unread={

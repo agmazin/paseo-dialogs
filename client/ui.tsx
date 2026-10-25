@@ -394,6 +394,7 @@ export function AgentLine({
   selected = false,
   onPress,
   testID,
+  onMenu,
 }: {
   theme: Theme;
   title: string;
@@ -410,6 +411,7 @@ export function AgentLine({
   selected?: boolean;
   onPress: () => void;
   testID?: string;
+  onMenu?: (anchor?: MenuAnchor) => void;
 }) {
   const p = palette(theme);
   const named = splitKey(title);
@@ -427,7 +429,7 @@ export function AgentLine({
       onPress={onPress}
       hint={busy ? `Работают подагенты: ${subagents}` : undefined}
     >
-      {(cut) => (
+      {(cut, hover) => (
         <>
           {(open || busy) && onToggle && (
             <Pressable
@@ -460,6 +462,11 @@ export function AgentLine({
             {named.key ? <Text style={{ color: p.dim }}>{named.key} </Text> : null}
             {named.name}
           </Label>
+          {onMenu && <Pressable testID="dialogs-agent-more" accessibilityRole="button" accessibilityLabel="Меню диалога"
+            onPress={e => { e.stopPropagation(); onMenu(anchor(e)); }}
+            style={{ width: 22, height: 24, alignItems: "center", justifyContent: "center", opacity: hover ? 1 : 0 }}>
+            <Icon name="Ellipsis" size={14} color={p.dim} />
+          </Pressable>}
           <Label
             size={12}
             color={p.dim}

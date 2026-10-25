@@ -5,7 +5,7 @@ import type { PaseoApi, PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import type { z } from "zod";
 import { readAgents, readState, type SlimAgent, type stateSchema } from "../shared/contracts";
 import { latest, runningSubagent, slim, topLevel } from "../shared/model";
-export async function agents(paseo: PaseoApi) {
+export async function agents(paseo: PaseoApi, includeChildren = false) {
   let cursor: string | undefined;
   const all: PaseoAgent[] = [];
   do {
@@ -16,7 +16,7 @@ export async function agents(paseo: PaseoApi) {
     all.push(...result.entries.map((e) => e.agent));
     cursor = result.pageInfo.nextCursor ?? undefined;
   } while (cursor);
-  return all.filter(topLevel).sort((a, b) => (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt));
+  return all.filter(a => includeChildren || topLevel(a)).sort((a, b) => (b.lastUserMessageAt ?? b.createdAt).localeCompare(a.lastUserMessageAt ?? a.createdAt));
 }
 async function workspaces(paseo: PaseoApi) {
   let cursor: string | undefined;
