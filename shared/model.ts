@@ -61,7 +61,7 @@ export function replacementTitle(current: FullAgent, previous: FullAgent, prompt
 }
 export function validTitle(text: string) {
   const t = text.trim();
-  return t.length <= 24 && /^[А-ЯЁ][а-яё]+(?: [А-ЯЁа-яё]+)?$/.test(t)
+  return t.length <= 24 && /^[А-ЯЁ][а-яё]+(?: (?:(?:и|или|для|по|в|на) )?[А-ЯЁа-яё]+)?$/.test(t)
     ? t
     : null;
 }

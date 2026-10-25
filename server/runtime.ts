@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import {
   readState,
@@ -16,6 +17,7 @@ import {
   readAgents,
   readArchive,
 } from "../shared/contracts";
+import { firstPrompt } from "./first-prompt";
 import { transfer } from "./transfer";
 import { transferClient } from "./transfer-client";
 import { autoTitle, replacementTitle, latest, runningSubagent, slim, topLevel, validTitle, type FullAgent } from "../shared/model";
@@ -39,6 +41,7 @@ type State = {
 };
 export function register(server: PluginServerContext) {
   const moving = new Set<string>();
+  const naming = new Set<string>();
   const transfers = new Set<Promise<unknown>>();
   let state: State = {
     groupOrder: [],
@@ -279,10 +282,16 @@ export function register(server: PluginServerContext) {
         outcome.kind !== "completed" ||
         !topLevel(agent) ||
         !agent.workspaceId
-      )
+      ) {
+        const reason = outcome.kind !== "completed" ? "незавершённый ход" : !topLevel(agent) ? "не головной чат" : "нет пространства";
+        console.log("Диалоги: автоназвание пропущено, " + reason, agent.id, outcome.kind);
         return;
+      }
       const workspace = await paseo.workspaces.ref(agent.workspaceId).refresh();
-      if (!workspace || workspace.background || workspace.archivingAt) return;
+      if (!workspace || workspace.background || workspace.archivingAt) {
+        console.log("Диалоги: автоназвание пропущено, пространство недоступно", agent.id);
+        return;
+      }
       const token = randomUUID();
       try {
         state.unread[agent.id] = token;
@@ -302,20 +311,21 @@ export function register(server: PluginServerContext) {
         console.error("Диалоги: маркер недоступен, используется родной статус");
       }
       const candidate = state.candidates[agent.id];
-      if (!candidate) return;
-      delete state.candidates[agent.id];
-      await save(); // Exactly one attempt.
+      if (!candidate) { console.log("Диалоги: автоназвание пропущено, нет кандидата", agent.id); return; }
+      if (naming.has(agent.id)) { console.log("Диалоги: автоназвание пропущено, попытка уже выполняется", agent.id); return; }
+      naming.add(agent.id);
+      let stage = "timeline";
       try {
         const handle = paseo.agents.ref(agent.id);
-        const history = await handle.timeline.refetch({
-          direction: "after",
-          limit: 100,
-        });
-        const first = history.entries.find(
-          (entry) => entry.item.type === "user_message",
-        );
-        if (!first || first.item.type !== "user_message") return;
-        const prompt = first.item.text;
+        let prompt = await firstPrompt(handle.timeline);
+        for (let attempt = 1; !prompt && attempt < 3; attempt++) {
+          await delay(500);
+          prompt = await firstPrompt(handle.timeline);
+        }
+        if (!prompt) { console.log("Диалоги: автоназвание отложено, нет user_message после трёх чтений", agent.id); return; }
+        delete state.candidates[agent.id];
+        await save(); // Consume only after the first prompt is available; one generation attempt.
+        stage = "current_agent";
         const current = await handle.refresh();
         if (
           !current ||
@@ -324,9 +334,11 @@ export function register(server: PluginServerContext) {
           !autoTitle(candidate.title, prompt, current.agent.labels?.["kanban.key"]) ||
           !autoTitle(current.agent.title, prompt, current.agent.labels?.["kanban.key"])
         ) {
-          console.log("Диалоги: автоназвание пропущено, имя изменено", agent.id);
+          const reason = !current ? "агент недоступен" : current.agent.archivedAt ? "агент архивирован" : !topLevel(current.agent) ? "агент стал подагентом" : "имя изменено";
+          console.log("Диалоги: автоназвание пропущено, " + reason, agent.id);
           return;
         }
+        stage = "credentials";
         const envText = await readFile(
           "/Users/agmazin/Yandex.Disk.localized/public/projects/agmazin/.secrets/cliproxy.env",
           "utf8",
@@ -342,6 +354,7 @@ export function register(server: PluginServerContext) {
         if (!url || !env.CLIPROXY_KEY_MAC) throw new Error("credentials");
         const abort = new AbortController();
         const timeout = setTimeout(() => abort.abort(), 20_000);
+        stage = "generation";
         const response = await fetch(
           `${url.replace(/\/v1$/, "")}/v1/chat/completions`,
           {
@@ -365,16 +378,19 @@ export function register(server: PluginServerContext) {
             }),
           },
         ).finally(() => clearTimeout(timeout));
-        if (!response.ok) throw new Error("network");
+        if (!response.ok) throw new Error(`http_${response.status}`);
+        stage = "title_validation";
         const data = (await response.json()) as {
           choices?: { message?: { content?: string } }[];
         };
         const title = validTitle(data.choices?.[0]?.message?.content ?? "");
         if (!title) throw new Error("invalid title");
+        stage = "latest_agent";
         const latest = await handle.refresh();
-        if (!latest) return;
+        if (!latest) { console.log("Диалоги: автоназвание пропущено, агент недоступен после запроса", agent.id); return; }
         const name = replacementTitle(latest.agent, current.agent, prompt, title);
-        if (!name) return;
+        if (!name) { console.log("Диалоги: автоназвание пропущено, имя изменено во время запроса", agent.id); return; }
+        stage = "rename";
         await promisify(execFile)(
           "/opt/homebrew/bin/paseo",
           [
@@ -389,12 +405,10 @@ export function register(server: PluginServerContext) {
           ],
           { timeout: 10_000 },
         );
-        console.log("Диалоги: автоназвание сохранено");
+        console.log("Диалоги: автоназвание сохранено", agent.id);
       } catch {
-        console.error(
-          "Диалоги: автоназвание не создано, исходное имя сохранено",
-        );
-      }
+        console.error("Диалоги: автоназвание не создано, исходное имя сохранено", agent.id, "stage", stage);
+      } finally { naming.delete(agent.id); }
     },
   );
   console.log("Диалоги: сервер запущен");

@@ -39,6 +39,8 @@ test("manual and preexisting names cannot pass automatic title gate", () => {
   assert.equal(autoTitle("", "Проверь заявки"), true);
   assert.equal(autoTitle("Проверь", "Проверь заявки"), false);
   assert.equal(validTitle("Пропавшие заявки"), "Пропавшие заявки");
+  assert.equal(validTitle("Фокус и вкладки"), "Фокус и вкладки");
+  assert.equal(validTitle("Планы для работы"), "Планы для работы");
   for (const bad of [
     '"Название"',
     "Три лишних слова",
