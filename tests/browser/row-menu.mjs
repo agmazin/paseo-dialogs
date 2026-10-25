@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 const home='/Users/agmazin/Library/Developer/paseo-dialogs-menu-home';
 const client=new DaemonClient({url:'ws://127.0.0.1:6796/ws',clientId:'row-menu-test',clientType:'cli',localCredential:()=>readFileSync(`${home}/local-credential`,'utf8').trim(),reconnect:{enabled:false}});
 let app;
-const out=resolve(process.env.SHOTS || 'docs/shots/0.10.0');mkdirSync(out,{recursive:true});
+const out=resolve(process.env.SHOTS || 'docs/shots/0.10.1');mkdirSync(out,{recursive:true});
 let id;
 try {
  await client.connect();assert.equal((await client.getDaemonStatus()).version,'0.12.0');

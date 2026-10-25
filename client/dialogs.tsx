@@ -716,7 +716,7 @@ export function Archive({
   const toast = useToast();
   const [archiveMenu, setArchiveMenu] = useState<PaseoAgent | null>(null);
   const showArchiveMenu = (agent: PaseoAgent) => setArchiveMenu(agent);
-  const archiveMenuView = (agent: PaseoAgent) => <View style={{ padding: 6, backgroundColor: theme.colors.surface1 }}>
+  const archiveMenuView = (agent: PaseoAgent) => <View style={{ padding: 6, width: "100%", maxWidth: 350, alignSelf: "center", borderRadius: 12, borderWidth: 1, borderColor: palette(theme).line, backgroundColor: palette(theme).menu }}>
     {(["id", "resume", "restore"] as const).map(kind => <MenuLine key={kind} theme={theme}
       label={kind === "id" ? "Скопировать ID агента" : kind === "resume" ? "Копировать команду продолжения" : "Разархивировать"}
       icon={kind === "restore" ? "ArchiveRestore" : "Copy"} keys={kind === "id" ? agent.id.slice(0, 7) : undefined}
