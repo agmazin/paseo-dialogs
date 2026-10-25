@@ -1,3 +1,5 @@
+import { discoverRowLayout, rowCanClose, closeRowTab, copyRowText } from "./row-actions";
+import { dialogAction } from "../shared/contracts";
 import {
   useCallback,
   useEffect,
@@ -168,9 +170,10 @@ function PlusMenu(p: PluginPopoverProps & { workspaceId: string }) {
   );
 }
 // Mirrors the host rename sheet: one field, Cancel and Rename, inline error.
-function RenameGroup({ theme, name, onSubmit, onClose }: {
+function RenameGroup({ theme, name, onSubmit, onClose, dialog = false }: {
   theme: PluginSidebarItemProps["theme"];
   name: string;
+  dialog?: boolean;
   onSubmit: (title: string) => Promise<unknown>;
   onClose: () => void;
 }) {
@@ -195,10 +198,10 @@ function RenameGroup({ theme, name, onSubmit, onClose }: {
     </Pressable>
   );
   return (
-    <HostModal title="Переименовать папку" open onOpenChange={open => { if (!open && !pending) onClose(); }}>
+    <HostModal title={dialog ? "Переименовать агента" : "Переименовать папку"} open onOpenChange={open => { if (!open && !pending) onClose(); }}>
       <HostModal.Content>
         <View testID="dialogs-rename-group" style={{ gap: 12 }}>
-          <HostTextInput accessibilityLabel="Название группы" value={draft} placeholder={name} autoFocus
+          <HostTextInput accessibilityLabel={dialog ? "Название диалога" : "Название группы"} value={draft} placeholder={name} autoFocus
             editable={!pending} onChangeText={v => { setDraft(v); setError(""); }} onSubmitEditing={() => void submit()}
             style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border,
               backgroundColor: theme.colors.surface0, color: theme.colors.foreground, fontSize: 14 }} />
@@ -215,6 +218,9 @@ function RenameGroup({ theme, name, onSubmit, onClose }: {
 }
 export function Dialogs(p: PluginSidebarItemProps) {
   const dimensions = useWindowDimensions();
+  const action = useRpc(dialogAction);
+  const [renameAgent, setRenameAgent] = useState<PaseoAgent | null>(null);
+  useEffect(() => { void discoverRowLayout().catch(() => {}); }, []);
   const settings = useSettings(displaySettings);
   const hideNative = settings.status === "ready" && !settings.values.showNativeWorkspaces;
   useEffect(() => hideNativeWorkspaces(hideNative), [hideNative]);
@@ -342,15 +348,35 @@ export function Dialogs(p: PluginSidebarItemProps) {
       const message = [working ? "Агент ещё работает. Архивация остановит его или работающих подагентов." : "Диалог останется в Архиве.",
         children ? `Вместе с ним уйдут в архив подагенты: ${children}.` : ""].filter(Boolean).join("\n\n");
       if ((working || children > 0) && !await confirmDestructive({ title: "Архивировать диалог?", message, confirm: "Архивировать", cancel: "Отмена" })) return;
-      await d.paseo.agents.ref(agent.id).archive();
+      await action({ agentId: agent.id, action: "archive" });
       await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
     } catch (error) { toast.error(error instanceof Error ? error.message : "Не удалось архивировать диалог"); }
   };
-  const dialogMenu = (agent: PaseoAgent, anchor?: MenuAnchor) => show(props => (
-    <View testID="dialogs-agent-menu" style={{ padding: 6, borderRadius: 12, backgroundColor: palette(props.theme).menu, borderWidth: 1, borderColor: palette(props.theme).line }}>
-      <MenuLine theme={props.theme} label="Архивировать" icon="Archive" onPress={() => { props.close(); void archiveDialog(agent); }} />
-    </View>
-  ), anchor, 230, true);
+  const runAction = async (agent: PaseoAgent, kind: "resume" | "reload" | "restore" | "id") => {
+    try {
+      if (kind === "id") await copyRowText(agent.id);
+      else {
+        const result = await action({ agentId: agent.id, action: kind });
+        if (result.text) await copyRowText(result.text);
+        if (kind === "reload") await d.paseo.agents.ref(agent.id).timeline.refetch();
+        await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+      }
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Не удалось выполнить действие"); }
+  };
+  const dialogMenu = (agent: PaseoAgent, anchor?: MenuAnchor) => {
+    const canClose = rowCanClose(agent.id);
+    show(props => (
+      <View testID="dialogs-agent-menu" style={{ padding: 6, borderRadius: 12, backgroundColor: palette(props.theme).menu, borderWidth: 1, borderColor: palette(props.theme).line }}>
+        {!agent.archivedAt && <MenuLine theme={props.theme} label="Переименовать" icon="Pencil" onPress={() => { props.close(); setRenameAgent(agent); }} />}
+        <MenuLine theme={props.theme} label="Скопировать ID агента" keys={agent.id.slice(0, 7)} icon="Copy" onPress={() => { props.close(); void runAction(agent, "id"); }} />
+        <MenuLine theme={props.theme} label="Копировать команду продолжения" icon="Copy" onPress={() => { props.close(); void runAction(agent, "resume"); }} />
+        {!agent.archivedAt && <MenuLine theme={props.theme} label="Перезагрузить агента" icon="RotateCw" onPress={() => { props.close(); void runAction(agent, "reload"); }} />}
+        {!agent.archivedAt && canClose && <MenuLine theme={props.theme} label="Закрыть вкладку" icon="X" onPress={() => { props.close(); closeRowTab(agent.id); }} />}
+        <View style={{ height: 1, marginVertical: 4, backgroundColor: palette(props.theme).line }} />
+        <MenuLine theme={props.theme} label={agent.archivedAt ? "Разархивировать" : "Архивировать"} icon={agent.archivedAt ? "ArchiveRestore" : "Archive"} onPress={() => { props.close(); if (agent.archivedAt) void runAction(agent, "restore"); else void archiveDialog(agent); }} />
+      </View>
+    ), anchor, 350, true);
+  };
   menuFor.current = (id, anchor) => {
     const w = workspaceById.get(id);
     if (!w) return;
@@ -364,6 +390,10 @@ export function Dialogs(p: PluginSidebarItemProps) {
   };
   return (
     <>
+    {renameAgent && <RenameGroup dialog theme={p.theme} name={(renameAgent.title || "").replace(/^[A-Z]+-\d+(?:-\d+)*: /, "")} onClose={() => setRenameAgent(null)} onSubmit={async title => {
+      await action({ agentId: renameAgent.id, action: "rename", title });
+      await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
+    }} />}
     {renaming && <RenameGroup theme={p.theme} name={renaming.name} onClose={() => setRenaming(null)}
       onSubmit={async title => {
         await d.paseo.workspaces.ref(renaming.id).setTitle(title);
@@ -435,7 +465,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
             <View key={a.id}>
               <AgentRow
                 agent={a}
-                onMenu={a.archivedAt ? undefined : anchor => dialogMenu(a, anchor)}
+                onMenu={anchor => dialogMenu(a, anchor)}
                 theme={p.theme}
                 time={activity[a.id]}
                 unread={
@@ -453,6 +483,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                 <AgentRow
                   key={k.id}
                   agent={k}
+                  onMenu={anchor => dialogMenu(k, anchor)}
                   theme={p.theme}
                   time={activity[k.id]}
                   sub
@@ -678,6 +709,21 @@ export function Archive({
   navigation,
   host,
 }: PluginScreenProps) {
+  const action = useRpc(dialogAction);
+  const toast = useToast();
+  const [archiveMenu, setArchiveMenu] = useState<PaseoAgent | null>(null);
+  const showArchiveMenu = (agent: PaseoAgent) => setArchiveMenu(agent);
+  const archiveMenuView = (agent: PaseoAgent) => <View style={{ padding: 6, backgroundColor: theme.colors.surface1 }}>
+    {(["id", "resume", "restore"] as const).map(kind => <MenuLine key={kind} theme={theme}
+      label={kind === "id" ? "Скопировать ID агента" : kind === "resume" ? "Копировать команду продолжения" : "Разархивировать"}
+      icon={kind === "restore" ? "ArchiveRestore" : "Copy"} keys={kind === "id" ? agent.id.slice(0, 7) : undefined}
+      onPress={() => { setArchiveMenu(null); void (async () => {
+        try {
+          if (kind === "id") await copyRowText(agent.id);
+          else { const result = await action({ agentId: agent.id, action: kind }); if (result.text) await copyRowText(result.text); await archive.refetch(); }
+        } catch (error) { toast.error(error instanceof Error ? error.message : "Не удалось выполнить действие"); }
+      })(); }} />)}
+  </View>;
   const getArchive = useRpc(readArchive);
   const archive = useQuery({
     queryKey: ["dialogs-archive", host.id, params.workspaceId],
@@ -725,12 +771,14 @@ export function Archive({
         }}
       />
       <Label color={theme.colors.foregroundMuted}>Найдено: {list.length}</Label>
+      {archiveMenu && <Modal transparent visible onRequestClose={() => setArchiveMenu(null)}><Pressable style={{ flex: 1, justifyContent: "center", padding: 24 }} onPress={() => setArchiveMenu(null)}>{archiveMenuView(archiveMenu)}</Pressable></Modal>}
       <ScrollView>
         {list.map((a) => (
           <AgentRow
             key={a.id}
             agent={a}
             time={times[a.id]}
+            onMenu={() => showArchiveMenu(a)}
             theme={theme}
             onPress={async () => {
               if (!await openArchivedAgent(a.id, a.workspaceId ?? undefined)) navigation?.openAgent({ agentId: a.id });

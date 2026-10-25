@@ -80,3 +80,9 @@ export const readArchive = defineRpc({
   input: z.object({ workspaceId: z.string().min(1) }),
   output: z.object({ agents: z.array(slimAgentSchema) }),
 });
+
+export const dialogAction = defineRpc({
+  name: "dialogs.action",
+  input: z.object({ agentId: z.string().min(1), action: z.enum(["rename", "resume", "reload", "restore", "archive"]), title: z.string().optional() }),
+  output: z.object({ text: z.string().optional() }),
+});

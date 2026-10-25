@@ -24,6 +24,8 @@ function fixture(archived = false, subs: Partial<PaseoAgent>[] = []) {
     fetchAgents: async () => ({ entries: [a, ...kids].map(agent => ({ agent: structuredClone(agent) })), pageInfo: {} }),
     fetchAgent: async id => ({ agent: structuredClone(byId(id)) }),
     archiveAgent: async () => {
+      assert.ok(a.labels["paseo.transfer-at"]);
+      for (const child of kids.filter(k => !k.archivedAt)) assert.equal(child.labels["paseo.transfer-at"], a.labels["paseo.transfer-at"]);
       calls.push("archive"); a.archivedAt = "now";
       for (const k of kids) {
         if (k.archivedAt) continue;
@@ -66,7 +68,7 @@ test("move keeps identity, session, name, labels; restores own state after impor
     restore: async a => { restored = true; assert.equal(a.id, "a"); },
   });
   assert.deepEqual(result, { agentId: "a", workspaceId: "target", archived: false });
-  assert.deepEqual(f.calls, ["archive", "import:target", "metadata"]);
+  assert.deepEqual(f.calls, ["metadata", "archive", "import:target", "metadata"]);
   assert.equal(f.get().title, "Ручное имя"); assert.deepEqual(f.get().labels, { project: "one" });
   assert.ok(restored);
 });
@@ -128,7 +130,7 @@ test("subagents: not archived ones come back after the move, archived stay, the 
   const f = fixture(false, [{}, { archivedAt: "old" }, { labels: { "paseo.parent-agent-id": "k0" } }]);
   await transfer(f.client, input, hooks);
   assert.equal(f.get().workspaceId, "target");
-  assert.deepEqual(f.calls, ["archive", "import:target", "metadata", "revive:k0", "update:k0", "revive:k2", "update:k2"]);
+  assert.deepEqual(f.calls, ["metadata", "update:k0", "update:k2", "archive", "import:target", "metadata", "revive:k0", "update:k0", "revive:k2", "update:k2"]);
   const [k0, k1, k2] = await Promise.all(["k0", "k1", "k2"].map(async id => (await f.client.fetchAgent(id))!.agent));
   assert.equal(k0.archivedAt, null); assert.equal(k0.workspaceId, "source");
   assert.equal(k1.archivedAt, "old"); assert.equal(k2.archivedAt, null);
@@ -155,7 +157,7 @@ test("a subagent that does not come back is reported, the chat stays moved", asy
 test("subagents in another workspace lose their parent on archive: the move gives it back", async () => {
   const f = fixture(false, [{ workspaceId: "elsewhere" }, { workspaceId: "elsewhere", archivedAt: "old" }]);
   await transfer(f.client, input, hooks);
-  assert.deepEqual(f.calls, ["archive", "import:target", "metadata", "update:k0"]);
+  assert.deepEqual(f.calls, ["metadata", "update:k0", "archive", "import:target", "metadata", "update:k0"]);
   assert.equal(f.kid("k0").labels["paseo.parent-agent-id"], "a");
   assert.equal(f.kid("k0").archivedAt, null);
 });

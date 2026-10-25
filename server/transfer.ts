@@ -114,6 +114,8 @@ export async function transfer(client: TransferClient, input: {
       throw new Error("Перенести можно, когда агент закончит");
     const again = subagentsProblem(await Promise.all(live.map(async d => (await client.fetchAgent(d.id))?.agent ?? d)));
     if (again) throw new Error(again);
+    const stamp = new Date().toISOString();
+    for (const item of [a, ...live]) await client.updateAgent(item.id, { labels: { ...item.labels, "paseo.transfer-at": stamp } });
     touched = true;
     await client.archiveAgent(a.id);
     moved = await restore(input.targetId);
@@ -139,4 +141,39 @@ export async function transfer(client: TransferClient, input: {
   // The chat is in place; a subagent that did not come back is reported, the move stays.
   await revive();
   return { agentId: moved.id, workspaceId: input.targetId, archived: false };
+}
+
+export async function executeDialogAction(client: TransferClient, input: { agentId: string; action: string; title?: string }) {
+    const agent = (await client.fetchAgent(input.agentId))?.agent;
+    if (!agent) throw new Error("Диалог не найден");
+    if (input.action === "resume") {
+      const session = agent.runtimeInfo?.sessionId || agent.persistence?.sessionId;
+      const template: Record<string, string> = { claude: "claude --resume", codex: "codex resume", hermes: "hermes --resume", pi: "pi --session", omp: "omp --session", opencode: "opencode --session" };
+      if (!session || !template[agent.provider]) throw new Error("Команда продолжения недоступна");
+      return { text: `${template[agent.provider]} ${session}` };
+    }
+    if (input.action === "rename") {
+      const title = input.title?.trim();
+      if (!title) throw new Error("Требуется имя");
+      const key = agent.labels?.["kanban.key"] || /^([A-Z]+-\d+(?:-\d+)*): /.exec(agent.title || "")?.[1];
+      await client.updateAgent(agent.id, { name: key ? `${key}: ${(title.startsWith(`${key}:`) ? title.slice(key.length + 1).trimStart() : title)}` : title, labels: agent.labels });
+    }
+    if (input.action === "reload") {
+      const native = client as typeof client & { refreshAgent(id: string): Promise<unknown> };
+      if (typeof native.refreshAgent !== "function") throw new Error("Перезагрузка недоступна");
+      await native.refreshAgent(agent.id);
+    }
+    if (input.action === "restore") {
+      if (!agent.persistence?.sessionId || !agent.workspaceId) throw new Error("Сессия недоступна");
+      await client.importAgent({ provider: agent.provider, sessionId: agent.persistence.sessionId, cwd: agent.cwd, workspaceId: agent.workspaceId, labels: agent.labels });
+      await client.updateAgent(agent.id, { name: agent.title ?? undefined, labels: agent.labels });
+    }
+    if (input.action === "archive") {
+      const stamp = new Date().toISOString();
+      const children = await descendants(client, agent.id);
+      for (const item of [agent, ...children.filter(a => !a.archivedAt && a.workspaceId === agent.workspaceId)])
+        await client.updateAgent(item.id, { labels: { ...item.labels, "paseo.explicit-archive-at": stamp } });
+      await client.archiveAgent(agent.id);
+    }
+    return {};
 }

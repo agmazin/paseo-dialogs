@@ -1,3 +1,5 @@
+import { dialogAction } from "../shared/contracts";
+import { handleDialogAction } from "./dialog-action";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readFile, mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -119,6 +121,7 @@ export function register(server: PluginServerContext) {
     delete state.archives[workspace.id];
     await save();
   }));
+  server.handle(dialogAction, input => handleDialogAction(input));
   server.handle(moveDialog, async (input, { paseo }) => {
     await ready;
     if (moving.has(input.agentId)) throw new Error("Диалог уже переносится");
