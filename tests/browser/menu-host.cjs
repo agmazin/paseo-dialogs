@@ -10,7 +10,7 @@ app.whenReady().then(async()=>{
   const path=decodeURIComponent(new URL(request.url).pathname);
   return net.fetch(pathToFileURL(join('/Applications/Paseo.app/Contents/Resources/app-dist',!path||!extname(path)?'index.html':path)).toString());
  });
- for (const name of ['paseo:get-pending-open-project','paseo:agent-navigation:ready','paseo:window:updateChrome','paseo:window:setBadgeCount','paseo:window:isMaximized','paseo:window:isFullscreen','paseo:menu:set-capturing-shortcut']) ipcMain.handle(name,()=>null);
+ for (const name of ['paseo:get-pending-open-project','paseo:agent-navigation:ready','paseo:window:updateChrome','paseo:window:setBadgeCount','paseo:window:isMaximized','paseo:window:isFullscreen','paseo:menu:set-capturing-shortcut','paseo:browser:set-shortcut-policy','paseo:browser:set-workspace-active-browser']) ipcMain.handle(name,()=>null);
  ipcMain.handle('paseo:invoke',(_event,command,args)=>{
   const home='/Users/agmazin/Library/Developer/paseo-dialogs-menu-home';
   const pid=JSON.parse(readFileSync(home+'/paseo.pid'));

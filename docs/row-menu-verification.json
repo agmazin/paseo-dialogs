@@ -1,0 +1,17 @@
+{
+  "fixtureId": "f7e64911-852c-4122-a955-c3659415b47e",
+  "client": "0.13.0",
+  "daemon": "0.12.0",
+  "checks": [
+    "id",
+    "resume",
+    "rename Escape/Enter prefix",
+    "close without archive",
+    "hidden close when tab absent",
+    "reload",
+    "archive labels",
+    "archive menu and full archive restore",
+    "1440/800/390"
+  ],
+  "errors": []
+}

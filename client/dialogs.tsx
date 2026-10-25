@@ -358,7 +358,10 @@ export function Dialogs(p: PluginSidebarItemProps) {
       else {
         const result = await action({ agentId: agent.id, action: kind });
         if (result.text) await copyRowText(result.text);
-        if (kind === "reload") await d.paseo.agents.ref(agent.id).timeline.refetch();
+        if (kind === "reload") {
+          await d.paseo.agents.ref(agent.id).timeline.refetch();
+          toast.show("Агент перезагружен", { variant: "success" });
+        }
         await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });
       }
     } catch (error) { toast.error(error instanceof Error ? error.message : "Не удалось выполнить действие"); }
@@ -749,6 +752,7 @@ export function Archive({
     );
   return (
     <View
+      testID="dialogs-archive-screen"
       style={{
         flex: 1,
         padding: 16,
