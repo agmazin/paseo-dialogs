@@ -1,8 +1,8 @@
 # Автоназвания 0.9.1
 
-Проверено 25.10.2026. Подготовлен коммит без выкладки: техлид отдельно запретил
-обновление основного демона до исправления Вкладок. Теги 0.9.0 и 0.3.0 не менялись.
-Новый чат на основном демоне не создавался; основной плагин не перезагружался.
+Проверено и выпущено 25.10.2026. Техлид AGM-14 снял временный запрет выкладки.
+Релиз v0.9.1: коммит 0df77f1a8a783d604a0a34c5b27aac43837ddb54.
+Теги 0.9.0 и 0.3.0 не менялись. Основной демон не перезапускался.
 
 ## Причина и исправление
 
@@ -54,6 +54,26 @@ bcbadc57-aae5-4e1e-b9f4-1d8c645e6d4a не менялся.
 
 ## Выкладка
 
-По отдельному разрешению техлида: тег v0.9.1, fetch в release-клоне, checkout тега,
-reload paseo-dialogs, проверка running и новый чат в agmazin основного демона.
-Подтверждение выпуска требует строки "автоназвание сохранено" с ID этого нового чата.
+Выполнены fetch --tags origin в release-клоне, checkout v0.9.1 и reload paseo-dialogs.
+Плагин running, каталог /Users/agmazin/Library/Developer/paseo-releases/paseo-dialogs,
+HEAD 0df77f1. Демон 0.12.0, настольный клиент 0.13.0.
+
+Новый головной чат без --title в пространстве agmazin основного демона:
+
+- ID: 7f5ae29a-7448-4004-9a80-a89a50564c71.
+- Workspace: wks_08eed7099b6d3c19.
+- Итог: "AGM-15: Фокус и вкладки".
+- Статус после завершения: idle, не архивирован.
+- 2026-10-25T17:39:43.935Z: "Диалоги: кандидат автоназвания записан 7f5ae29a-7448-4004-9a80-a89a50564c71".
+- 2026-10-25T17:39:53.650Z: "Диалоги: автоназвание сохранено 7f5ae29a-7448-4004-9a80-a89a50564c71".
+- Источник: paseo plugin logs paseo-dialogs --json, sequence 116 и 117; имя и idle проверены через agent inspect.
+
+Дополнительно на этом чате прочитана настоящая форма timeline без текста сообщений:
+поля requestId, agentId, agent, direction, projection, epoch, reset, staleCursor, gap,
+window, startCursor, endCursor, hasOlder, hasNewer, entries, error.
+При limit 1 направление after возвращает user_message с seq 1 и hasNewer=true,
+before возвращает plugin с seq 4 и hasOlder=true. Entry содержит provider, item,
+timestamp, seqStart, seqEnd, sourceSeqRanges, turnId (при наличии), collapsed.
+Автотест использует projection=projected, collapsed=[], диапазоны startSeq/endSeq.
+TypeScript и все 25 тестов повторно прошли непосредственно перед выпуском.
+Существующие вкладки и имена не менялись; новый проверочный чат оставлен idle.
