@@ -65,6 +65,7 @@ export const slimAgentSchema = z.object({
   requiresAttention: z.boolean(),
   attentionReason: z.string().nullable(),
   pendingPermissionCount: z.number(),
+  waitReason: z.enum(["permission", "ask", "review"]).nullable(),
   activeTurn: z.boolean(),
   parentAgentId: z.string().nullable(),
 });

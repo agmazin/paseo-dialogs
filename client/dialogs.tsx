@@ -26,7 +26,7 @@ import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArc
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { archiveImpact } from "../shared/archive";
-import { activityTime, atRest, bucket, latest, runningByParent } from "../shared/model";
+import { activityTime, branchStatus, bucket, latest, runningByParent, waitingReason, waitingHint } from "../shared/model";
 import { agents, setState, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent, bindAgentMenu } from "./web";
 import {
@@ -72,6 +72,7 @@ function AgentRow({
   selected = false,
   time,
   subagents,
+  waiting,
   open,
   onToggle,
   sub,
@@ -84,6 +85,7 @@ function AgentRow({
   selected?: boolean;
   time?: string;
   subagents?: number;
+  waiting?: number;
   open?: boolean;
   onToggle?: () => void;
   sub?: boolean;
@@ -104,6 +106,8 @@ function AgentRow({
       old={!!agent.archivedAt}
       sub={sub}
       subagents={subagents}
+      waiting={waiting}
+      waitHint={waitingHint(waitingReason(agent))}
       open={open}
       onToggle={onToggle}
       selected={selected}
@@ -311,11 +315,6 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const kids = runningByParent(raw);
   const seen = (a: PaseoAgent) => latest(activity[a.id], a.lastActivityAt, a.lastUserMessageAt) ?? a.createdAt;
   const all = raw.filter((a) => !a.parentAgentId).sort((a, b) => seen(b).localeCompare(seen(a)));
-  const status = (a: PaseoAgent) =>
-    bucket(
-      a,
-      Object.hasOwn(state.unread, a.id) ? !!state.unread[a.id] : undefined,
-    );
   // Host behavior: archive the workspace with its agents and terminals, toast the daemon error.
   const removeGroup = async (id: string, name: string, dialogs: number, terminalCount: number) => {
     const message = [
@@ -457,8 +456,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
         const counts: Partial<Record<Status, number>> = {};
         active.forEach((a) => {
           // A dialog at rest with working subagents counts as "В работе".
-          const own = status(a),
-            s = kids.has(a.id) && atRest(own) ? "running" : own;
+          const s = branchStatus(a, kids.get(a.id) ?? [], Object.hasOwn(state.unread, a.id) ? !!state.unread[a.id] : undefined);
           counts[s] = (counts[s] ?? 0) + 1;
         });
         const row = (a: PaseoAgent) => {
@@ -478,6 +476,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
                 }
                 selected={selected === a.id}
                 subagents={busy.length}
+                waiting={busy.filter(k => waitingReason(k)).length}
                 open={open}
                 onToggle={() => setBranches((old) => ({ ...old, [a.id]: !old[a.id] }))}
                 onPress={() => openAgent(a.id, !!a.archivedAt, a.workspaceId)}

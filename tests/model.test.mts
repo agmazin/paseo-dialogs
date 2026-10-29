@@ -128,3 +128,50 @@ test("automatic titles tolerate only their own Kanban prefix and preserve it acr
   assert.equal(replacementTitle({ ...numbered, archivedAt: "2026-10-23" }, numbered, prompt, "Проверка заявок"), null);
   assert.equal(replacementTitle({ ...numbered, parentAgentId: "p" }, numbered, prompt, "Проверка заявок"), null);
 });
+
+test("Alexander waiting has priority over running for every state and survives slim RPC rows", async () => {
+  const { waitingReason, waitingHint, slim } = await import("../shared/model.ts");
+  for (const status of ["running", "initializing", "idle", "error"]) {
+    for (const [extra, reason] of [
+      [{ pendingPermissions: [{}] }, "permission"],
+      [{ pendingPermissionCount: 1 }, "permission"],
+      [{ attentionReason: "permission" }, "permission"],
+      [{ labels: { kanban: "ask" } }, "ask"],
+      [{ labels: { kanban: "review" } }, "review"],
+      [{ labels: { kanban: "review" }, pendingPermissions: [{}] }, "permission"],
+    ] as const) {
+      const a = { id: "a", provider: "codex", createdAt: "2026-10-25", status, ...extra };
+      assert.equal(waitingReason(a), reason);
+      assert.equal(bucket(a), "needs_input");
+      if (!("pendingPermissionCount" in extra)) assert.equal(bucket(slim(a)), "needs_input");
+      assert.equal(waitingReason({ ...a, archivedAt: "2026-10-25" }), null);
+    }
+  }
+  assert.equal(waitingHint("permission"), "Ждёт тебя: разрешение");
+  assert.equal(waitingHint("ask"), "Ждёт тебя: вопрос");
+  assert.equal(waitingHint("review"), "Ждёт тебя: приёмка");
+  for (const kanban of ["done", "accepted", "queue"]) assert.equal(waitingReason({ status: "idle", labels: { kanban } }), null);
+});
+
+test("waiting descendants propagate across idle ancestors, count once and never count as working", async () => {
+  const { branchStatus, waitingReason } = await import("../shared/model.ts");
+  const agents = [
+    { id: "root", status: "running", parentAgentId: null },
+    { id: "bridge", status: "idle", parentAgentId: "root" },
+    { id: "permission", status: "running", parentAgentId: "bridge", pendingPermissionCount: 1 },
+    { id: "ask", status: "idle", parentAgentId: "root", labels: { kanban: "ask" } },
+    { id: "review", status: "idle", parentAgentId: "bridge", labels: { kanban: "review" } },
+    { id: "worker", status: "running", parentAgentId: "root" },
+    { id: "archive", status: "running", parentAgentId: "root", pendingPermissionCount: 1, archivedAt: "2026-10-25" },
+  ];
+  const kids = runningByParent(agents);
+  assert.deepEqual(kids.get("root")!.map(a => a.id), ["permission", "ask", "review", "worker"]);
+  assert.equal(kids.get("root")!.filter(a => waitingReason(a)).length, 3);
+  assert.equal(branchStatus(agents[0], kids.get("root")!), "needs_input");
+  assert.equal(branchStatus(agents[1], kids.get("bridge")!), "needs_input");
+  assert.equal(branchStatus({ status: "idle" }, [agents[5]]), "running");
+  assert.equal(branchStatus({ status: "running" }, []), "running");
+  assert.equal(branchStatus({ status: "idle", labels: { kanban: "ask" } }, [agents[5]]), "needs_input");
+  const cycle = runningByParent([{ id: "a", status: "running", parentAgentId: "b" }, { id: "b", status: "running", parentAgentId: "a" }]);
+  assert.equal(cycle.get("a")!.length, 1);
+});

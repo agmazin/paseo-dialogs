@@ -35,3 +35,17 @@ test("rename preserves Kanban prefix, resume prefers runtime session, reload use
   await executeDialogAction(client, { agentId: "root", action: "reload" });
   assert.deepEqual(updates[1], { reload: "root" });
 });
+test("restore checks import identity and preserves title, workspace and labels", async () => {
+  const { client, records, updates } = fixture();
+  records[0].archivedAt = "before";
+  client.importAgent = async (input: any) => {
+    assert.equal(input.sessionId, "persisted");
+    assert.equal(input.workspaceId, "w");
+    return { ...records[0], archivedAt: null };
+  };
+  await executeDialogAction(client, { agentId: "root", action: "restore" });
+  assert.deepEqual(updates, [{ id: "root", name: "AGM-14: Имя", labels: { "kanban.key": "AGM-14" } }]);
+  client.importAgent = async () => ({ id: "different", workspaceId: "w" });
+  await assert.rejects(executeDialogAction(client, { agentId: "root", action: "restore" }), /контракт импорта/);
+  assert.equal(updates.length, 1);
+});

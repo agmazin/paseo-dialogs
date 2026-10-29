@@ -1,16 +1,24 @@
 export interface StatusAgent {
   status: string;
-  pendingPermissions?: unknown[];
+  pendingPermissions?: readonly unknown[] | null;
+  archivedAt?: string | null;
+  labels?: Readonly<Record<string, string>>;
+  waitReason?: "permission" | "ask" | "review" | null;
   pendingPermissionCount?: number;
   attentionReason?: string | null;
   requiresAttention?: boolean;
 }
+export function waitingReason(a: StatusAgent): "permission" | "ask" | "review" | null {
+  if (a.archivedAt) return null;
+  if ((a.pendingPermissionCount ?? a.pendingPermissions?.length ?? 0) > 0 || a.attentionReason === "permission") return "permission";
+  const mark = a.labels?.kanban ?? a.waitReason;
+  return mark === "ask" || mark === "review" ? mark : null;
+}
+export function waitingHint(reason: ReturnType<typeof waitingReason>) {
+  return reason ? `Ждёт тебя: ${{ permission: "разрешение", ask: "вопрос", review: "приёмка" }[reason]}` : undefined;
+}
 export function bucket(a: StatusAgent, unread?: boolean) {
-  if (
-    (a.pendingPermissionCount ?? a.pendingPermissions?.length ?? 0) > 0 ||
-    a.attentionReason === "permission"
-  )
-    return "needs_input";
+  if (waitingReason(a)) return "needs_input";
   if (a.status === "error" || a.attentionReason === "error") return "failed";
   if (a.status === "running") return "running";
   if (unread ?? a.requiresAttention) return "attention";
@@ -35,14 +43,26 @@ export function runningSubagent(a: {
 export function atRest(status: string) {
   return status === "done" || status === "attention";
 }
-// Running subagents by parent id; parentAgentId of slim rows already includes the label.
-export function runningByParent<T extends { status: string; archivedAt?: string | null; parentAgentId?: string | null }>(
-  agents: readonly T[],
-) {
+export function runningByParent<T extends StatusAgent & { id: string; parentAgentId?: string | null }>(agents: readonly T[]) {
   const kids = new Map<string, T[]>();
-  for (const a of agents)
-    if (a.parentAgentId && runningSubagent(a)) kids.set(a.parentAgentId, [...(kids.get(a.parentAgentId) ?? []), a]);
+  const byId = new Map(agents.map(a => [a.id, a]));
+  for (const a of agents) {
+    if (a.archivedAt || (!waitingReason(a) && a.status !== "running")) continue;
+    const seen = new Set([a.id]);
+    let parent = a.parentAgentId;
+    while (parent && !seen.has(parent)) {
+      seen.add(parent);
+      if (byId.get(parent)?.archivedAt) break;
+      kids.set(parent, [...(kids.get(parent) ?? []), a]);
+      parent = byId.get(parent)?.parentAgentId;
+    }
+  }
   return kids;
+}
+export function branchStatus(a: StatusAgent, descendants: readonly StatusAgent[], unread?: boolean) {
+  const own = bucket(a, unread);
+  if (descendants.some(k => waitingReason(k))) return "needs_input";
+  return descendants.length && atRest(own) ? "running" : own;
 }
 export function titleWithoutKey(title: string | null | undefined, key?: string) {
   const text = title?.trim() ?? "";
@@ -132,6 +152,7 @@ export function slim(a: FullAgent) {
     requiresAttention: !!a.requiresAttention,
     attentionReason: a.attentionReason ?? null,
     pendingPermissionCount: a.pendingPermissions?.length ?? 0,
+    waitReason: waitingReason(a),
     activeTurn: !!a.activeTurn,
     parentAgentId: a.parentAgentId || a.labels?.["paseo.parent-agent-id"] || null,
   };
