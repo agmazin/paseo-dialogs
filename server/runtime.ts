@@ -121,7 +121,7 @@ export function register(server: PluginServerContext) {
     delete state.archives[workspace.id];
     await save();
   }));
-  server.handle(dialogAction, input => handleDialogAction(input));
+  server.handle(dialogAction, (input, { paseo }) => handleDialogAction(input, paseo));
   server.handle(moveDialog, async (input, { paseo }) => {
     await ready;
     if (moving.has(input.agentId)) throw new Error("Диалог уже переносится");

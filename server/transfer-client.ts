@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { join, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { supported, unavailable, type TransferClient } from "./transfer";
+import { connectTransferClient, unavailable, type TransferClient } from "./transfer";
 
 // Explicitly approved private adapter. Resolve at runtime so missing internal
 // exports disable only transfer instead of breaking the whole plugin bundle.
@@ -28,20 +28,13 @@ export async function transferClient(home: string): Promise<TransferClient> {
       localCredential: async () => (await readFile(join(home, "local-credential"), "utf8")).trim(),
       reconnect: { enabled: false }, connectTimeoutMs: 5000,
     });
-    const connect = instance.connect;
-    const getStatus = instance.getDaemonStatus;
-    if (!supported(instance) || typeof connect !== "function" || typeof getStatus !== "function") throw new Error("methods");
     client = instance;
-    stage = "connection";
-    await connect.call(instance);
-    const status = await getStatus.call(instance);
-    // The private protocol is tested only against 0.12.0. Do not mutate agents
-    // on a changed daemon contract until its import/rollback gate is repeated.
-    if (!serverId || status.serverId !== serverId || status.version !== "0.12.0") throw new Error("version");
+    stage = "contract";
+    await connectTransferClient(instance, serverId);
     return instance;
   } catch (error) {
     console.error("Диалоги: перенос недоступен", stage, (error as { code?: string }).code ?? "unknown");
-    await client?.close().catch(() => {});
+    if (typeof client?.close === "function") await client.close().catch(() => {});
     throw new Error(unavailable);
   }
 }

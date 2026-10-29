@@ -143,7 +143,7 @@ export async function transfer(client: TransferClient, input: {
   return { agentId: moved.id, workspaceId: input.targetId, archived: false };
 }
 
-export async function executeDialogAction(client: TransferClient, input: { agentId: string; action: string; title?: string }) {
+export async function executeDialogAction(client: TransferClient & { refreshAgent?: (id: string) => Promise<unknown> }, input: { agentId: string; action: string; title?: string }) {
     const agent = (await client.fetchAgent(input.agentId))?.agent;
     if (!agent) throw new Error("Диалог не найден");
     if (input.action === "resume") {
@@ -165,7 +165,9 @@ export async function executeDialogAction(client: TransferClient, input: { agent
     }
     if (input.action === "restore") {
       if (!agent.persistence?.sessionId || !agent.workspaceId) throw new Error("Сессия недоступна");
-      await client.importAgent({ provider: agent.provider, sessionId: agent.persistence.sessionId, cwd: agent.cwd, workspaceId: agent.workspaceId, labels: agent.labels });
+      const restored = await client.importAgent({ provider: agent.provider, sessionId: agent.persistence.sessionId, cwd: agent.cwd, workspaceId: agent.workspaceId, labels: agent.labels });
+      if (restored.id !== agent.id || restored.workspaceId !== agent.workspaceId)
+        throw new Error("Paseo изменил контракт импорта");
       await client.updateAgent(agent.id, { name: agent.title ?? undefined, labels: agent.labels });
     }
     if (input.action === "archive") {
@@ -176,4 +178,21 @@ export async function executeDialogAction(client: TransferClient, input: { agent
       await client.archiveAgent(agent.id);
     }
     return {};
+}
+
+// Extended only after the isolated archive/import/rollback gate.
+const testedVersions = new Set(["0.12.0", "0.13.2"]);
+
+export async function connectTransferClient(instance: unknown, serverId: string): Promise<TransferClient> {
+  const connection = instance as TransferClient & {
+    connect(): Promise<void>;
+    getDaemonStatus(): Promise<{ serverId: string; version: string }>;
+  };
+  if (!supported(connection) || typeof connection.connect !== "function" ||
+      typeof connection.getDaemonStatus !== "function") throw new Error(unavailable);
+  await connection.connect();
+  const status = await connection.getDaemonStatus();
+  if (!serverId || status.serverId !== serverId || !testedVersions.has(status.version))
+    throw new Error(unavailable);
+  return connection;
 }
