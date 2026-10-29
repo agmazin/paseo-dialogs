@@ -74,7 +74,13 @@ PASEO_TEST_AGENT (JSON с id), необязательный PASEO_TEST_RESULT д
 ## Автоматическая проверка
 
 npm run typecheck и npm test: 34 теста, 0 ошибок.
-CI запускает npm ci, typecheck и все модульные тесты на push и pull_request.
+CI настроен на npm ci, typecheck и все модульные тесты на push и pull_request.
+GitHub Actions не запустил job из-за оплаты/лимита аккаунта: "The job was not started because recent account payments have failed or your spending limit needs to be increased"; steps=[].
+Эквивалентный прогон выполнен в чистом git archive checkout /tmp/agm22-clean-check:
+npm ci установил 317 пакетов, typecheck и все 34 теста прошли.
+Инфраструктурный отказ: https://github.com/agmazin/paseo-dialogs/actions/runs/40896306069.
+PR: https://github.com/agmazin/paseo-dialogs/pull/1.
+Настройки billing не менялись; техническая приёмка разрешила локальный эквивалент.
 Тяжёлые сырые логи и временные файлы находятся в игнорируемом каталоге .qa.
 
 ## Внедрение
