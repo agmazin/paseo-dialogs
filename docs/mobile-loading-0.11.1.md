@@ -67,4 +67,27 @@ clientBundle и выполняет native contribution заново. APK, USB и
 для этой доставки не нужны. При отключённом телефоне bundle придёт при следующем соединении.
 Откат: вернуть сохранённый каталог и повторить тот же plugin reload.
 
-До технической приёмки основной каталог и его plugin runtime не изменяются.
+## Внедрение и проверка основного daemon
+
+Техлид технически принял diff и 62 теста, установил release checkout 458d890
+версии 0.11.1 и выполнил единственный reload 2026-10-31 в 16:44:45Z.
+Последующая проверка исполнителя была только чтением, без повторной установки или reload.
+
+На 2026-10-31 16:45:42Z основной daemon 0.13.2 сообщил running. Его фактический catalog
+содержал native loading/retry тексты, requirement >=0.13.2 и bundle 133 726 байт,
+SHA-256 ecc1461b9bd473844e8e6ddc480ef6bc5f7d64b63dcf0c71a98056d8c0bdf993.
+SDK handshake mobile/0.13.2 прошёл. Обычный dialogs.state ответил за 3.13 мс,
+dialogs.agents за 34.60 мс, workspaces за 2.69 мс. Возврат state был после уже
+завершившегося restore; независимость initial state от зависшей истории подтверждает
+отдельный before/after fixture выше. Это локальные RPC, без измерения relay или FPS.
+
+Воспроизведение read-only проверки из корня проекта:
+
+```sh
+PASEO_VERIFY_PRODUCTION_READONLY=1 node --experimental-strip-types tests/integration/mobile-production-readonly.mts
+```
+
+Проверка ожидает именно этот локальный daemon и release; она не читает поля диалогов
+в отчёт и не меняет имена, архив, вкладки или настройки. Результат без персональных
+данных сохранён в ignored artifacts/production-mobile-readonly.json.
+Проверка физического Android, его UI и FPS не проводилась.
