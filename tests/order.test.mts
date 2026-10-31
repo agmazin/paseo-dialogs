@@ -58,7 +58,7 @@ test('real RPC handlers persist and reload order, archive then restore appends, 
       agents:{list:async () => ({entries:fixture.map(agent=>({agent})),pageInfo:{}})}};
     function boot() {
       const handlers = new Map<string, any>(), events = new Map<string, any>();
-      const stop = register({handle:(contract: any, fn: any)=>handlers.set(contract.name, fn),
+      const stop = register({before:()=>()=>{},handle:(contract: any, fn: any)=>handlers.set(contract.name, fn),
         on:(name: string, fn: any)=>{events.set(name, fn);return ()=>events.delete(name)}});
       return {stop, events, call:(name: string, input = {}) => handlers.get('dialogs.'+name)(input,{paseo})};
     }

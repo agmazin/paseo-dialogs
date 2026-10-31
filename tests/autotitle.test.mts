@@ -1,39 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
+import { randomUUID } from 'node:crypto';
 
-test('created hook persists candidates; completed hook titles once, preserves manual edits and Kanban races', async (t) => {
-  const home = await mkdtemp(join(tmpdir(), 'dialogs-title-'));
+test('same-agent naming: creation, scope, manual names, retries, archive and reconnect', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'dialogs-self-title-'));
   const previousHome = process.env.PASEO_HOME;
-  const previousFetch = globalThis.fetch;
   process.env.PASEO_HOME = home;
   const require = createRequire(import.meta.url);
   const cache = new Map<string, any>();
-  const updates: string[][] = [];
-  let requests = 0;
-  let failures: string[] = [];
-  let writeFailures = 0;
-  let renameFailures = 0;
-  let generatedTitle = 'Проверка заявок';
-  const logs: string[] = [];
-  const previousLog = console.log;
-  const previousError = console.error;
-  console.log = console.error = (...args) => { logs.push(args.join(' ')); };
-  let duringGeneration = () => {};
-  globalThis.fetch = async (_url, options: any) => {
-    assert.equal(JSON.parse(options.body).max_tokens, 256);
-    assert.ok(options.signal);
-    requests++;
-    duringGeneration();
-    const failure = failures.shift();
-    if (failure === 'generation') throw new TypeError('fixture offline');
-    if (failure === 'validation') return { ok: true, json: async () => ({ choices: [{ message: { content: '' } }] }) } as Response;
-    return { ok: true, json: async () => ({ choices: [{ message: { content: generatedTitle } }] }) } as Response;
+  const updates: any[] = [];
+  let current: any;
+  let onConnect = () => {};
+  let onUpdate = () => {};
+  let failUpdate = false;
+  let failSave = false;
+  const prompt = 'Проверь заявки на сайте';
+  const hooks = new Map<string, any>();
+  const events = new Map<string, any>();
+  const handlers = new Map<string, any>();
+  const server = {
+    before(name: string, fn: any) { hooks.set(name, fn); return () => {}; },
+    on(name: string, fn: any) { events.set(name, fn); return () => {}; },
+    handle(contract: any, fn: any) { handlers.set(contract.name, fn); },
   };
   function load(file: string): any {
     if (cache.has(file)) return cache.get(file);
@@ -42,226 +36,151 @@ test('created hook persists candidates; completed hook titles once, preserves ma
     const code = ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: {
       module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
     } }).outputText;
-    new Function('exports', 'require', code)(exports, (id: string) => id === '@getpaseo/plugin'
-      ? { defineRpc: (value: any) => value } : id.startsWith('.')
-      ? load(resolve(dirname(file), id + '.ts')) : id === 'node:fs/promises'
-      ? { ...require(id), writeFile: async (...args: any[]) => {
-        if (writeFailures > 0) { writeFailures--; throw new Error('fixture disk unavailable'); }
+    new Function('exports', 'require', code)(exports, (id: string) => {
+      if (id === '@getpaseo/plugin') return { defineRpc: (value: any) => value };
+      if (id === './transfer-client') return { transferClient: async () => {
+        onConnect();
+        return { updateAgent: async (id: string, value: any) => {
+          if (failUpdate) throw new Error('offline');
+          updates.push({ id, ...value });
+          onUpdate();
+          // The actual 0.13.2 metadata operation retains archivedAt, unlike resume/import.
+          current.title = value.name;
+        }, close: async () => {} };
+      } };
+      if (id === 'node:fs/promises') return { ...require(id), writeFile: async (...args: any[]) => {
+        if (failSave) { failSave = false; throw new Error('disk'); }
         return require(id).writeFile(...args);
-      }, readFile: async (path: string, ...args: any[]) => path.endsWith('/cliproxy.env')
-        ? 'CLIPROXY_URL_MAC=http://fixture.invalid\nCLIPROXY_KEY_MAC=fixture' : require(id).readFile(path, ...args) }
-      : id === 'node:child_process' ? { execFile: (_: string, args: string[], _options: any, callback: any) => {
-        updates.push(args);
-        if (renameFailures > 0) { renameFailures--; callback(new Error('fixture rename failed')); return; }
-        callback(null, '', '');
-      } } : require(id));
+      } };
+      return id.startsWith('.') ? load(resolve(dirname(file), id + '.ts')) : require(id);
+    });
     return exports;
   }
-  let stop: (() => Promise<void>) | undefined;
+  let stop: any;
+  const paseo = {
+    agents: { ref: (id: string) => {
+      assert.equal(id, current.id);
+      return { refresh: async () => ({ agent: structuredClone(current) }), timeline: {
+        refetch: async () => ({ entries: [{ item: { type: 'user_message', text: prompt } }], hasOlder: false }),
+      } };
+    } },
+    workspaces: { ref: () => ({ refresh: async () => ({ id: 'w' }) }) },
+  };
+  let token: string;
+  const create = async (id: string, title: string | null = prompt, bind = true) => {
+    id = randomUUID();
+    current = { id, cwd: "/fixture", title, provider: 'codex', workspaceId: 'w', labels: {}, archivedAt: null };
+    onConnect = onUpdate = () => {};
+    failUpdate = false;
+    const request = await hooks.get('agent.create')({ request: { config: {
+      provider: 'codex', cwd: '/fixture', title, systemPrompt: 'Existing instruction',
+      mcpServers: { existing: { type: 'http', url: 'http://fixture' } },
+      toolPolicy: { preapproved: [{ kind: 'mcp', server: 'existing', tool: 'keep' }] },
+    }, env: { KEEP: 'yes' } } });
+    token = request.config.mcpServers.dialogs_title.env.PASEO_DIALOGS_TITLE_TOKEN;
+    assert.equal(request.env.KEEP, 'yes');
+    assert.ok(request.config.systemPrompt.startsWith('Existing instruction\n\n'));
+    assert.equal(request.config.mcpServers.existing.url, 'http://fixture');
+    assert.equal(request.config.mcpServers.dialogs_title.env.PASEO_DIALOGS_TITLE_TOKEN, token);
+    assert.equal(request.config.toolPolicy.preapproved.length, 2);
+    assert.equal(await hooks.get('agent.create')({ request }), undefined, 'instruction is idempotent');
+    await mkdir(join(home, 'agents/fixture'), { recursive: true });
+    await writeFile(join(home, 'agents/fixture', `${id}.json`), JSON.stringify({ id, cwd: '/fixture', config: request.config }));
+    if (bind) await events.get('agent.created')({ agent: current });
+    return request;
+  };
+  const call = (title = 'Проверка заявок', capability = token) => handlers.get('dialogs.self-title')({ token: capability, title }, { paseo });
   try {
-    const events = new Map<string, any>();
-    const handlers = new Map<string, any>();
-    stop = load(resolve('server/runtime.ts')).register({ handle(contract: any, fn: any) { handlers.set(contract.name, fn); }, on(name: string, fn: any) {
-      events.set(name, fn); return () => {};
-    } });
-    const prompt = 'Проверь заявки';
-    let current: any;
-    const timelineCalls: any[] = [];
-    let empty = false;
-    let workspace: any = { id: 'w' };
-    const entry = (item: any, seq: number) => ({ provider: 'codex', item,
-      timestamp: '2026-10-25T17:00:00.000Z', seqStart: seq, seqEnd: seq,
-      sourceSeqRanges: [{ startSeq: seq, endSeq: seq }], turnId: 'turn', collapsed: [] });
-    const page = (entries: any[], hasOlder = false) => ({
-      requestId: 'request', agentId: current.id, agent: structuredClone(current),
-      direction: 'before', projection: 'projected', epoch: 'epoch', reset: false,
-      staleCursor: false, gap: false, window: { minSeq: 1, maxSeq: 4, nextSeq: 5 },
-      startCursor: { epoch: 'epoch', seq: entries[0]?.seqStart ?? 1 },
-      endCursor: { epoch: 'epoch', seq: entries.at(-1)?.seqEnd ?? 1 },
-      hasOlder, hasNewer: false, entries, error: null,
-    });
-    const history = async (options: any) => {
-      timelineCalls.push(options);
-      assert.equal(options.direction, 'before');
-      if (empty) return page([]);
-      if (current.id === 'pagination' && !options.cursor) return page([
-        entry({ type: 'user_message', text: 'Следующее сообщение' }, 3),
-        entry({ type: 'assistant_message', text: 'Ответ' }, 4),
-      ], true);
-      if (options.cursor) assert.deepEqual(options.cursor, { epoch: 'epoch', seq: 3 });
-      const entries = [
-        entry({ type: 'user_message', text: prompt }, 1),
-        entry({ type: 'assistant_message', text: 'Ответ' }, 2),
-        entry({ type: 'user_message', text: 'Следующее сообщение' }, 3),
-        entry({ type: 'assistant_message', text: 'Ответ' }, 4),
-      ];
-      return page(options.cursor ? entries.slice(0, 2) : entries);
-    };
-    const paseo = {
-      workspaces: { list: async () => ({ entries: [], pageInfo: {} }), ref: () => ({ refresh: async () => workspace }) },
-      agents: { ref: () => ({ refresh: async () => ({ agent: structuredClone(current) }), timeline: {
-        append: async () => {}, refetch: history,
-      } }) },
-    };
-    for (const scenario of ['plain', 'prefix', 'prefix-race', 'manual', 'manual-race', 'pagination', 'service-word', 'empty-retry']) {
-      current = { id: scenario, workspaceId: 'w', title: scenario === 'manual' ? 'Ручное название' : prompt };
-      await events.get('agent.created')({ agent: structuredClone(current) }, { paseo });
-      const saved = JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/state.json'), 'utf8'));
-      assert.ok(saved.candidates[scenario]);
-      if (scenario === 'prefix') Object.assign(current, { title: `AGM-11: ${prompt}`, labels: { 'kanban.key': 'AGM-11' } });
-      duringGeneration = () => {
-        if (scenario === 'prefix-race') Object.assign(current, { title: `AGM-11: ${prompt}`, labels: { 'kanban.key': 'AGM-11' } });
-        if (scenario === 'manual-race') current.title = 'Название человека';
-      };
-      generatedTitle = scenario === 'service-word' ? 'Фокус и вкладки' : 'Проверка заявок';
-      const count = updates.length;
-      const calls = timelineCalls.length;
-      if (scenario === 'empty-retry') {
-        empty = true;
-        const requestCount = requests;
-        await events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-        assert.equal(timelineCalls.length - calls, 3);
-        assert.equal(requests, requestCount);
-        assert.ok(JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/state.json'), 'utf8')).candidates[scenario]);
-        assert.ok(logs.some(line => line.includes('отложено') && line.includes(scenario)));
-        empty = false;
-      }
-      await events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-      const expected = scenario.startsWith('manual') ? 0 : 1;
-      assert.equal(updates.length - count, expected, scenario);
-      if (expected) assert.equal(updates.at(-1)![updates.at(-1)!.indexOf('--name') + 1], scenario.startsWith('prefix') ? `AGM-11: ${generatedTitle}` : generatedTitle);
-      if (scenario === 'pagination') assert.equal(timelineCalls.length - calls, 2);
-      assert.equal(JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/state.json'), 'utf8')).candidates[scenario], undefined);
-      await events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-      assert.equal(updates.length - count, expected, 'one attempt only');
-    }
-    assert.equal(requests, 7);
-    current = { id: 'concurrent', workspaceId: 'w', title: prompt };
-    await events.get('agent.created')({ agent: structuredClone(current) }, { paseo });
-    empty = true;
-    const count = updates.length;
-    const previousCalls = timelineCalls.length;
-    const pending = events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-    while (timelineCalls.length === previousCalls) await new Promise(resolve => setTimeout(resolve, 1));
-    await events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-    assert.ok(logs.some(line => line.includes('попытка уже выполняется') && line.includes('concurrent')));
-    empty = false;
-    await pending;
-    assert.equal(updates.length - count, 1);
-    for (const [agent, kind, space, reason] of [
-      [{ id: 'failed', workspaceId: 'w' }, 'failed', { id: 'w' }, 'незавершённый ход'],
-      [{ id: 'child', workspaceId: 'w', parentAgentId: 'parent' }, 'completed', { id: 'w' }, 'не головной чат'],
-      [{ id: 'no-workspace' }, 'completed', { id: 'w' }, 'нет пространства'],
-      [{ id: 'background', workspaceId: 'w' }, 'completed', { id: 'w', background: true }, 'пространство недоступно'],
-      [{ id: 'no-candidate', workspaceId: 'w' }, 'completed', { id: 'w' }, 'нет кандидата'],
-    ] as const) {
-      current = agent;
-      workspace = space;
-      await events.get('agent.turn_ended')({ agent, outcome: { kind } }, { paseo });
-      assert.ok(logs.some(line => line.includes(reason) && line.includes(agent.id)), reason);
-    }
-    workspace = { id: 'w' };
-    const savedCandidate = async (id: string) => JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/state.json'), 'utf8')).candidates[id];
-    const create = async (id: string) => {
-      current = { id, workspaceId: 'w', title: prompt };
-      duringGeneration = () => {};
-      await events.get('agent.created')({ agent: structuredClone(current) }, { paseo });
-    };
-    const end = () => events.get('agent.turn_ended')({ agent: current, outcome: { kind: 'completed' } }, { paseo });
-    await t.test('generation and invalid title recover within three durable attempts', async () => {
-      await create('transient');
-      failures = ['generation', 'validation'];
-      const before = requests;
-      await end();
-      assert.equal(requests - before, 3);
-      assert.equal(updates.at(-1)![updates.at(-1)!.indexOf('--name') + 1], generatedTitle);
-      assert.equal(await savedCandidate('transient'), undefined);
-      assert.ok(logs.some(line => line.includes('stage generation attempt 1')));
-      assert.ok(logs.some(line => line.includes('stage title_validation attempt 2')));
-    });
-    await t.test('permanent failures stay bounded across later turns and reconnects', async () => {
-      await create('bounded');
-      failures = ['generation', 'generation', 'generation'];
-      const before = requests;
-      await end();
-      assert.equal(requests - before, 3);
-      assert.equal((await savedCandidate('bounded')).attempts, 3);
-      await end();
-      await handlers.get('dialogs.state')({}, { paseo });
-      assert.equal(requests - before, 3);
-    });
-    await t.test('rename failure retains generated title and retries without another model call', async () => {
-      await create('rename-error');
-      renameFailures = 1;
-      const before = requests;
-      const writes = updates.length;
-      await end();
-      assert.equal(requests - before, 1);
-      assert.equal(updates.length - writes, 2);
-      assert.equal(await savedCandidate('rename-error'), undefined);
-    });
-    await t.test('exhausted rename failures preserve the durable candidate and cached title', async () => {
-      await create('rename-exhausted');
-      renameFailures = 3;
-      const before = requests;
-      const writes = updates.length;
-      await end();
-      assert.equal(requests - before, 1);
-      assert.equal(updates.length - writes, 3);
-      const candidate = await savedCandidate('rename-exhausted');
-      assert.equal(candidate.attempts, 3);
-      assert.equal(candidate.generated, generatedTitle);
-      await end();
-      assert.equal(updates.length - writes, 3);
-    });
-    await t.test('state write failure retains candidate and generated title', async () => {
-      await create('disk-error');
-      const before = requests;
-      duringGeneration = () => { writeFailures = 1; };
-      await end();
-      assert.equal(requests - before, 1);
-      assert.equal(await savedCandidate('disk-error'), undefined);
-      assert.ok(logs.some(line => line.includes('disk-error') && line.includes('ошибка')));
-    });
-    await t.test('manual rename during a retry is preserved', async () => {
-      await create('manual-retry');
-      failures = ['generation'];
+    await writeFile(join(home, 'config.json'), JSON.stringify({ plugins: { 'paseo-dialogs': { path: resolve('.') } } }));
+    const { registerSelfTitle, selfTitle } = load(resolve('server/self-title.ts'));
+    stop = registerSelfTitle(server);
+    await t.test('first call verifies name; duplicate calls and later topics cannot rename again', async () => {
+      await create('plain');
+      assert.equal((await call()).status, 'renamed');
+      assert.equal(current.title, 'Проверка заявок');
       const before = updates.length;
-      duringGeneration = () => { current.title = 'Ручное название'; };
-      await end();
+      assert.equal((await call('Полив цветов')).status, 'unchanged');
       assert.equal(updates.length, before);
-      assert.equal(current.title, 'Ручное название');
-      assert.equal(await savedCandidate('manual-retry'), undefined);
+      assert.equal(selfTitle.input.safeParse({ token, title: 'Проверка заявок', agentId: 'victim' }).success, false);
+      await assert.rejects(call('Проверка заявок', '11111111-1111-4111-8111-111111111111'), /scope_denied/);
     });
-    await t.test('persisted completion resumes after reload and reconnect without regenerating its title', async () => {
-      await create('reconnect');
-      await stop!();
-      const statePath = join(home, 'plugin-data/paseo-dialogs/state.json');
-      const saved = JSON.parse(await readFile(statePath, 'utf8'));
-      saved.candidates.reconnect = { title: prompt, completed: true, attempts: 1, generated: generatedTitle };
-      await writeFile(statePath, JSON.stringify(saved));
-      const before = requests;
-      const writes = updates.length;
-      stop = load(resolve('server/runtime.ts')).register({
-        handle(contract: any, fn: any) { handlers.set(contract.name, fn); },
-        on(name: string, fn: any) { events.set(name, fn); return () => {}; },
-      });
-      await handlers.get('dialogs.state')({}, { paseo });
-      await stop!();
-      assert.equal(requests, before);
-      assert.equal(updates.length - writes, 1);
-      assert.equal(await savedCandidate('reconnect'), undefined);
-      assert.equal((await savedCandidate('bounded')).attempts, 3);
+    await t.test('concurrent duplicate calls produce one metadata write', async () => {
+      await create('parallel');
+      const before = updates.length;
+      await Promise.all([call(), call()]);
+      assert.equal(updates.length, before + 1);
     });
-    const firstPrompt = load(resolve('server/first-prompt.ts')).firstPrompt;
-    await assert.rejects(firstPrompt({ refetch: async () => ({ ...page([]), hasOlder: true, startCursor: null }) }), /timeline_missing_cursor/);
-    await assert.rejects(firstPrompt({ refetch: async () => ({ ...page([]), hasOlder: true }) }), /timeline_repeated_cursor/);
-    for (const line of logs) assert.ok(!line.includes(prompt), 'logs exclude prompt text');
+    await t.test('manual initial title and a manual edit while connecting are preserved', async () => {
+      await create('manual', 'Личное название');
+      const before = updates.length;
+      assert.equal((await call()).status, 'preserved');
+      await create('manual-race');
+      onConnect = () => { current.title = 'Другое название'; };
+      assert.equal((await call()).status, 'preserved');
+      assert.equal(current.title, 'Другое название');
+      assert.equal(updates.length, before);
+    });
+    await t.test('Kanban assignment while connecting keeps the latest number', async () => {
+      await create('kanban-race');
+      onConnect = () => { current.labels['kanban.key'] = 'AGM-24'; current.title = `AGM-24: ${prompt}`; };
+      await call();
+      assert.equal(current.title, 'AGM-24: Проверка заявок');
+    });
+    await t.test('archived agents and children cannot be renamed; history opens never bind scope', async () => {
+      const before = updates.length;
+      await create('archived'); current.archivedAt = '2026-10-31';
+      assert.equal((await call()).status, 'preserved');
+      await create('archive-race'); onConnect = () => { current.archivedAt = '2026-10-31'; };
+      assert.equal((await call()).status, 'preserved');
+      await create('child'); current.parentAgentId = 'parent';
+      assert.equal((await call()).status, 'preserved');
+      assert.equal(updates.length, before);
+      assert.equal(hooks.has('agent.session_open'), false);
+      await assert.rejects(call('Проверка заявок', 'history'), /scope_denied/);
+    });
+    await t.test('archive during the metadata write is retained', async () => {
+      await create('during-write'); onUpdate = () => { current.archivedAt = '2026-10-31'; };
+      await call();
+      assert.equal(current.archivedAt, '2026-10-31');
+    });
+    await t.test('retry after transient update failure and reload uses persisted scope', async () => {
+      await create('retry'); failUpdate = true;
+      await assert.rejects(call(), /offline/);
+      await stop(); stop = registerSelfTitle(server);
+      failUpdate = false;
+      await call();
+      assert.equal(current.title, 'Проверка заявок');
+    });
+    await t.test('a lost completion write recovers without renaming twice, including after reload', async () => {
+      await create('lost-save'); onUpdate = () => { failSave = true; };
+      await assert.rejects(call(), /disk/);
+      const before = updates.length;
+      await stop(); stop = registerSelfTitle(server);
+      assert.equal((await call()).status, 'unchanged');
+      assert.equal(updates.length, before);
+      assert.equal((await call()).status, 'unchanged');
+    });
+    await t.test('MCP before created safely retries; pending binding survives reload without session_open', async () => {
+      await create('early', prompt, false);
+      await assert.rejects(call(), /binding_pending/);
+      await stop(); stop = registerSelfTitle(server);
+      await events.get('agent.created')({ agent: current });
+      await call();
+      assert.equal(current.title, 'Проверка заявок');
+    });
+    await t.test('invalid title and MCP name collision are rejected', async () => {
+      await create('validation');
+      await assert.rejects(call('Hello'), /invalid_title/);
+
+      await assert.rejects(hooks.get('agent.create')({ request: { config: { mcpServers: { dialogs_title: {} } } } }), /name_conflict/);
+    });
+    const state = JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/self-titles.json'), 'utf8'));
+    assert.ok(Object.values(state).some((record: any) => record.done));
+    assert.equal(state.history, undefined);
+    assert.equal(readFileSync(resolve('server/runtime.ts'), 'utf8').includes('startNaming'), false);
+    assert.equal(readFileSync(resolve('server/runtime.ts'), 'utf8').includes('cliproxy'), false);
   } finally {
     await stop?.();
-    globalThis.fetch = previousFetch;
-    console.log = previousLog;
-    console.error = previousError;
     if (previousHome === undefined) delete process.env.PASEO_HOME; else process.env.PASEO_HOME = previousHome;
     await rm(home, { recursive: true, force: true });
   }
