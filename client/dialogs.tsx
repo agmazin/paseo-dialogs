@@ -1,3 +1,4 @@
+import { DialogLoadStatus } from "./load-status";
 import { discoverRowLayout, rowCanClose, closeRowTab, copyRowText } from "./row-actions";
 import { dialogAction } from "../shared/contracts";
 import {
@@ -303,12 +304,8 @@ export function Dialogs(p: PluginSidebarItemProps) {
       : "Не удалось перенести диалог"),
     onSettled: () => qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] }),
   });
-  if (!d.data)
-    return (
-      <Label color={p.theme.colors.foregroundMuted} size={13}>
-        {d.isError ? "Диалоги: ошибка загрузки" : "Диалоги: загрузка..."}
-      </Label>
-    );
+  const loadingStatus = <DialogLoadStatus state={d.loadState} theme={p.theme} retry={() => void d.refetch()} />;
+  if (!d.data) return loadingStatus;
   const { agents: raw, workspaces, terminals, state, archiveCounts } = d.data;
   const groupOrder = reconcileOrder(state.groupOrder, workspaces.map(w => w.id));
   const workspaceById = new Map(workspaces.map(w => [w.id, w]));
@@ -392,6 +389,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
   };
   return (
     <>
+    {loadingStatus}
     {renameAgent && <RenameGroup dialog theme={p.theme} name={(renameAgent.title || "").replace(/^[A-Z]+-\d+(?:-\d+)*: /, "")} onClose={() => setRenameAgent(null)} onSubmit={async title => {
       await action({ agentId: renameAgent.id, action: "rename", title });
       await qc.invalidateQueries({ queryKey: ["dialogs", p.host.id] });

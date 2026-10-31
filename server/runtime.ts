@@ -1,5 +1,6 @@
 import { dialogAction } from "../shared/contracts";
 import { handleDialogAction } from "./dialog-action";
+import { restoreUnreadMarkers } from "./restore";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { readFile, mkdir, rename, writeFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -105,7 +106,7 @@ export function register(server: PluginServerContext) {
     const previous = state.groupOrder;
     state.groupOrder = moveGroup(previous, id, beforeId);
     try { await save(); } catch (error) { state.groupOrder = previous; throw error; }
-    return state;
+    return snapshot();
   }));
   const offWorkspaceCreated = server.on("workspace.created", async (_, { paseo }) => orderTask(async () => {
     await ready;
@@ -175,6 +176,10 @@ export function register(server: PluginServerContext) {
     return { claimed: true };
   });
   let restored: Promise<void> | undefined;
+  let restorationComplete = false;
+  let stopped = false;
+  const restoreLifetime = new AbortController();
+  const snapshot = () => ({ ...state, unread: { ...state.unread }, restoring: !!restored && !restorationComplete });
   // Top-level dialogs, plus live subagents when asked: the list shows them under a parent at rest.
   const topLevelAgents = async (paseo: PaseoApi, withRunningSubagents = false) => {
     let cursor: string | undefined;
@@ -222,35 +227,39 @@ export function register(server: PluginServerContext) {
   server.handle(readArchive, async ({ workspaceId }, { paseo }) => ({
     agents: (await topLevelAgents(paseo)).filter((a) => a.archivedAt && a.workspaceId === workspaceId).map(withTurns),
   }));
-  server.handle(readState, async (_, { paseo }) => {
+  server.handle(readState, async ({ waitForRestore }, { paseo }) => {
     await ready;
-    await orderTask(() => reconcile(paseo));
-    restored ??= (async () => {
-      for (const [agentId, token] of Object.entries(state.unread)) {
-        if (!token) continue;
-        try {
-          const handle = paseo.agents.ref(agentId);
-          const history = await handle.timeline.refetch({ direction: "before", limit: 100 });
-          const exists = history.entries.some(e => e.item.type === "plugin" && e.item.id === `read-${token}`);
-          if (!exists && state.unread[agentId] === token) await handle.timeline.append({
-            type: "plugin", id: `read-${token}`, kind: "read-marker", version: 1,
-            data: { agentId, token },
-          });
-        } catch {
-          delete state.unread[agentId];
-          console.error("Диалоги: восстановление маркера недоступно, используется родной статус");
-        }
-      }
-      await save();
-    })();
-    await restored;
-    return state;
+    if (!waitForRestore) await orderTask(() => reconcile(paseo));
+    if (!restored && !Object.values(state.unread).some(Boolean)) {
+      restorationComplete = true;
+      restored = Promise.resolve();
+    }
+    restored ??= restoreUnreadMarkers({
+      unread: state.unread,
+      stopped: () => stopped,
+      signal: restoreLifetime.signal,
+      read: async (agentId) => (await paseo.agents.ref(agentId).timeline.refetch({ direction: "before", limit: 100 }))
+        .entries.map((entry) => entry.item),
+      append: async (agentId, token) => {
+        if (stopped || state.unread[agentId] !== token) return;
+        await paseo.agents.ref(agentId).timeline.append({
+          type: "plugin", id: `read-${token}`, kind: "read-marker", version: 1,
+          data: { agentId, token },
+        });
+      },
+      save,
+      report: () => console.error("Диалоги: восстановление маркера недоступно, используется родной статус"),
+    }).catch(() => {
+      if (!stopped) console.error("Диалоги: не удалось сохранить восстановленные маркеры");
+    }).finally(() => { restorationComplete = true; });
+    if (waitForRestore) await restored;
+    return snapshot();
   });
   server.handle(preference, async ({ section, id, value }) => {
     await ready;
     state[section][id] = value;
     await save();
-    return state;
+    return snapshot();
   });
   server.handle(markRead, async ({ agentId, token }) => {
     await ready;
@@ -302,6 +311,8 @@ export function register(server: PluginServerContext) {
   );
   console.log("Диалоги: сервер запущен");
   return async () => {
+    stopped = true;
+    restoreLifetime.abort();
     await stopSelfTitle();
     offEnded();
     await Promise.allSettled([...transfers]);

@@ -5,6 +5,7 @@ export const markerSchema = z.object({
   token: z.string(),
 });
 export const stateSchema = z.object({
+  restoring: z.boolean().optional(),
   groupOrder: z.array(z.string()).default([]),
   collapsed: z.record(z.string(), z.boolean()),
   archives: z.record(z.string(), z.boolean()),
@@ -12,7 +13,7 @@ export const stateSchema = z.object({
 });
 export const readState = defineRpc({
   name: "dialogs.state",
-  input: z.object({}),
+  input: z.object({ waitForRestore: z.boolean().optional() }),
   output: stateSchema,
 });
 export const preference = defineRpc({
