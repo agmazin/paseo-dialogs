@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 
 export async function sidebarRuntime(options: {
+  agents?: any[];
   unread?: Record<string, string>;
   read?: (id: string) => Promise<any>;
   source?: string;
@@ -41,7 +42,7 @@ export async function sidebarRuntime(options: {
   const paseo = {
     workspaces: { list: async () => ({ entries: [{ id: "w" }], pageInfo: {} }) },
     agents: {
-      list: async () => ({ entries: [], pageInfo: {} }),
+      list: async () => ({ entries: (options.agents ?? []).map(agent => ({ agent })), pageInfo: {} }),
       ref: (id: string) => ({ timeline: {
         refetch: async () => { reads++; return options.read ? options.read(id) : { entries: [] }; },
         append: async (item: any) => { appends.push(item); },

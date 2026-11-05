@@ -68,6 +68,7 @@ export const slimAgentSchema = z.object({
   pendingPermissionCount: z.number(),
   waitReason: z.enum(["permission", "ask", "review"]).nullable(),
   activeTurn: z.boolean(),
+  kanbanKey: z.string().nullable().optional(),
   parentAgentId: z.string().nullable(),
 });
 export type SlimAgent = z.output<typeof slimAgentSchema>;

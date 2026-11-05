@@ -50,3 +50,28 @@ test("empty unread state is immediately complete without a background follow-up"
     assert.equal(app.reads, 0);
   } finally { await app.close(); }
 });
+
+test("orphan Kanban cards stay out of dialogs, archive rows and counts", async () => {
+  const base = { provider: "codex", status: "idle", workspaceId: "w", createdAt: "2026-11-05" };
+  const cards = [
+    { id: "card", labels: { "kanban.key": "AGM-12-4" }, title: "Без префикса" },
+    { id: "deep", labels: { "kanban.key": "ECO-3-14-2" } },
+    { id: "fallback", title: "AGM-12-7: Карточка" },
+  ];
+  const roots = [{ id: "root", labels: { "kanban.key": "AGM-12" } }, { id: "plain", title: "Без номера" }];
+  const fixtures = [...cards, ...roots].flatMap(a => [
+    { ...base, ...a },
+    { ...base, ...a, id: `${a.id}-archived`, archivedAt: "2026-11-05" },
+  ]);
+  const app = await sidebarRuntime({ agents: fixtures });
+  try {
+    const { topLevel } = await import("../shared/model.ts");
+    for (const archives of [[], ["w"]]) {
+      const result = await app.call("agents", { archives, limit: 30 });
+      assert.deepEqual(result.archiveCounts, { w: 2 });
+      assert.deepEqual(result.agents.filter(topLevel).map(a => a.id).sort(),
+        (archives.length ? ["root", "plain", "root-archived", "plain-archived"] : ["root", "plain"]).sort());
+    }
+    assert.deepEqual((await app.call("archive", { workspaceId: "w" })).agents.map(a => a.id).sort(), ["plain-archived", "root-archived"]);
+  } finally { await app.close(); }
+});
