@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto";
 import { connectTransferClient, unavailable, type TransferClient } from "./transfer";
 
 // Explicitly approved private adapter. Resolve at runtime so missing internal
-// exports disable only transfer instead of breaking the whole plugin bundle.
-export async function transferClient(home: string): Promise<TransferClient> {
+// exports disable only the requested action instead of breaking the plugin bundle.
+export async function transferClient(home: string, methods?: readonly string[]): Promise<TransferClient> {
   let client: TransferClient | undefined;
   let stage = "daemon";
   try {
@@ -30,11 +30,15 @@ export async function transferClient(home: string): Promise<TransferClient> {
     });
     client = instance;
     stage = "contract";
-    await connectTransferClient(instance, serverId);
+    await connectTransferClient(instance, serverId, methods);
     return instance;
   } catch (error) {
-    console.error("Диалоги: перенос недоступен", stage, (error as { code?: string }).code ?? "unknown");
+    console.error(methods ? "Диалоги: действие недоступно" : "Диалоги: перенос недоступен", stage, (error as Error).message);
     if (typeof client?.close === "function") await client.close().catch(() => {});
-    throw new Error(unavailable);
+    throw new Error(methods ? `Действие недоступно: ${(error as Error).message}` : unavailable);
   }
+}
+
+export function dialogClient(home: string, methods: readonly string[]) {
+  return transferClient(home, [...methods, "close"]);
 }

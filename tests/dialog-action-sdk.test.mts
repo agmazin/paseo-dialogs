@@ -21,7 +21,7 @@ test("dialog archive uses the host SDK for snapshots, pagination and native arch
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   new Function("exports", "require", code)(exports, (id: string) => {
-    if (id === "./transfer-client") return { transferClient: async () => privateClient };
+    if (id === "./transfer-client") return { dialogClient: async () => privateClient };
     if (id === "./transfer") return { executeDialogAction };
     if (id === "node:os") return { homedir: () => "/unused" };
     if (id === "node:path") return { join: (...parts: string[]) => parts.join("/") };
