@@ -38,7 +38,7 @@ test('same-agent naming: creation, scope, manual names, retries, archive and rec
     } }).outputText;
     new Function('exports', 'require', code)(exports, (id: string) => {
       if (id === '@getpaseo/plugin') return { defineRpc: (value: any) => value };
-      if (id === './transfer-client') return { transferClient: async () => {
+      if (id === './transfer-client') return { dialogClient: async () => {
         onConnect();
         return { updateAgent: async (id: string, value: any) => {
           if (failUpdate) throw new Error('offline');

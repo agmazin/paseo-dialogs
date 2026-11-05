@@ -1,11 +1,12 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { transferClient } from "./transfer-client";
+import { dialogClient } from "./transfer-client";
 import { executeDialogAction } from "./transfer";
 
 export async function handleDialogAction(input: { agentId: string; action: string; title?: string }, paseo: PaseoApi) {
-  const client = await transferClient(process.env.PASEO_HOME || join(homedir(), ".paseo"));
+  const methods: Record<string, string[]> = { archive: ["updateAgent"], rename: ["updateAgent"], reload: ["refreshAgent"], restore: ["importAgent", "updateAgent"], resume: [] };
+  const client = await dialogClient(process.env.PASEO_HOME || join(homedir(), ".paseo"), methods[input.action] ?? []);
   try {
     return await executeDialogAction({
       fetchAgent: id => paseo.agents.ref(id).refresh(),

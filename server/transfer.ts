@@ -181,18 +181,22 @@ export async function executeDialogAction(client: TransferClient & { refreshAgen
 }
 
 // Extended only after the isolated archive/import/rollback gate.
-const testedVersions = new Set(["0.12.0", "0.13.2"]);
+const testedVersions = new Set(["0.12.0", "0.13.2", "0.14.0"]);
 
-export async function connectTransferClient(instance: unknown, serverId: string): Promise<TransferClient> {
+export async function connectTransferClient(instance: unknown, serverId: string, methods?: readonly string[]): Promise<TransferClient> {
   const connection = instance as TransferClient & {
     connect(): Promise<void>;
     getDaemonStatus(): Promise<{ serverId: string; version: string }>;
   };
-  if (!supported(connection) || typeof connection.connect !== "function" ||
+  if (methods) {
+    const missing = [...methods, "connect", "getDaemonStatus"].find(key =>
+      typeof (instance as Record<string, unknown>)?.[key] !== "function");
+    if (missing) throw new Error(`В клиенте Paseo отсутствует необходимый метод: ${missing}`);
+  } else if (!supported(connection) || typeof connection.connect !== "function" ||
       typeof connection.getDaemonStatus !== "function") throw new Error(unavailable);
   await connection.connect();
   const status = await connection.getDaemonStatus();
-  if (!serverId || status.serverId !== serverId || !testedVersions.has(status.version))
-    throw new Error(unavailable);
+  if (!serverId || status.serverId !== serverId || (!methods && !testedVersions.has(status.version)))
+    throw new Error(methods ? "Не удалось подтвердить локальный демон Paseo" : unavailable);
   return connection;
 }

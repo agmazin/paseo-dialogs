@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { firstPrompt } from "./first-prompt";
 import { autoTitle, splitKey, topLevel, validTitle } from "../shared/model";
-import { transferClient } from "./transfer-client";
+import { dialogClient } from "./transfer-client";
 
 export const selfTitle = defineRpc({
   name: "dialogs.self-title",
@@ -144,7 +144,7 @@ export function registerSelfTitle(server: PluginServerContext, options: { plugin
       if (!valid) throw new Error("self_title_invalid_title: нужны 1-2 русских слова, максимум 24 символа");
       record.applied ??= valid;
       await save();
-      const client = await transferClient(home);
+      const client = await dialogClient(home, ["updateAgent"]);
       try {
         // Refresh after connecting: neither a manual edit nor a new Kanban number may be stale.
         const latest = await handle.refresh();
