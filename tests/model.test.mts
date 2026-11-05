@@ -175,3 +175,22 @@ test("waiting descendants propagate across idle ancestors, count once and never 
   const cycle = runningByParent([{ id: "a", status: "running", parentAgentId: "b" }, { id: "b", status: "running", parentAgentId: "a" }]);
   assert.equal(cycle.get("a")!.length, 1);
 });
+
+test("orphan card identity survives slim rows and blocks automatic naming", async () => {
+  const { slim, replacementTitle } = await import("../shared/model.ts");
+  const base = { id: "a", provider: "codex", status: "idle", createdAt: "2026-11-05", title: "Проверка" };
+  for (const extra of [
+    { labels: { "kanban.key": "AGM-12-4" } },
+    { labels: { "kanban.key": "ECO-3-14-2" } },
+    { title: "AGM-12-7: Проверка" },
+  ]) {
+    const agent = { ...base, ...extra };
+    assert.equal(topLevel(agent), false);
+    assert.equal(topLevel(slim(agent)), false);
+    assert.equal(replacementTitle(agent, agent, "Проверка", "Новое имя"), null);
+  }
+  for (const agent of [base, { ...base, title: "AGM-12: Проверка" }, { ...base, labels: { "kanban.key": "AGM-12" }, title: "AGM-12-4: Старое имя" }]) {
+    assert.equal(topLevel(agent), true);
+    assert.equal(topLevel(slim(agent)), true);
+  }
+});

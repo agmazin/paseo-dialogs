@@ -27,7 +27,7 @@ import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArc
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { archiveImpact } from "../shared/archive";
-import { activityTime, branchStatus, bucket, latest, runningByParent, waitingReason, waitingHint } from "../shared/model";
+import { topLevel, activityTime, branchStatus, bucket, latest, runningByParent, waitingReason, waitingHint } from "../shared/model";
 import { agents, setState, useData } from "./data";
 import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent, bindAgentMenu } from "./web";
 import {
@@ -311,7 +311,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
   const workspaceById = new Map(workspaces.map(w => [w.id, w]));
   const kids = runningByParent(raw);
   const seen = (a: PaseoAgent) => latest(activity[a.id], a.lastActivityAt, a.lastUserMessageAt) ?? a.createdAt;
-  const all = raw.filter((a) => !a.parentAgentId).sort((a, b) => seen(b).localeCompare(seen(a)));
+  const all = raw.filter(topLevel).sort((a, b) => seen(b).localeCompare(seen(a)));
   // Host behavior: archive the workspace with its agents and terminals, toast the daemon error.
   const removeGroup = async (id: string, name: string, dialogs: number, terminalCount: number) => {
     const message = [
@@ -633,7 +633,7 @@ export function Destination({
         const all = (await getAgents({ archives: [], limit: 0 })).agents;
         const last =
           all
-            .filter((a) => a.workspaceId === id && !a.parentAgentId)
+            .filter((a) => a.workspaceId === id && topLevel(a))
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ??
           all[0];
         const config = last
@@ -740,6 +740,7 @@ export function Archive({
     (archive.data?.agents.filter(
       (a) =>
         a.workspaceId === params.workspaceId &&
+        topLevel(a) &&
         a.archivedAt &&
         (a.title ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase()),
     ) ?? []).sort((a, b) =>

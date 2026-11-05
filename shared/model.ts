@@ -25,10 +25,16 @@ export function bucket(a: StatusAgent, unread?: boolean) {
   return "done";
 }
 export function topLevel(a: {
+  title?: string | null;
+  kanbanKey?: string | null;
   parentAgentId?: string | null;
   labels?: Readonly<Record<string, string>>;
 }) {
-  return !a.parentAgentId && !a.labels?.["paseo.parent-agent-id"];
+  if (a.parentAgentId || a.labels?.["paseo.parent-agent-id"]) return false;
+  const key = a.labels?.["kanban.key"] ?? a.kanbanKey;
+  return key
+    ? !/^[A-Z]{3}-\d+(?:-\d+)+$/.test(key)
+    : !/^[A-Z]{3}-\d+(?:-\d+)+: /.test(a.title ?? "");
 }
 // A subagent shown under its parent: only while it works and is not archived.
 export function runningSubagent(a: {
@@ -154,6 +160,7 @@ export function slim(a: FullAgent) {
     pendingPermissionCount: a.pendingPermissions?.length ?? 0,
     waitReason: waitingReason(a),
     activeTurn: !!a.activeTurn,
+    kanbanKey: a.labels?.["kanban.key"] ?? null,
     parentAgentId: a.parentAgentId || a.labels?.["paseo.parent-agent-id"] || null,
   };
 }
