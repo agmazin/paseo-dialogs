@@ -1,10 +1,10 @@
+export { Destination } from "./destination";
 import { DialogLoadStatus } from "./load-status";
 import { discoverRowLayout, rowCanClose, closeRowTab, copyRowText } from "./row-actions";
 import { dialogAction } from "../shared/contracts";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type ComponentType,
@@ -23,13 +23,13 @@ import { Modal as HostModal, TextInput as HostTextInput, useToast } from "@getpa
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SlimAgent as PaseoAgent } from "../shared/contracts";
 import { displaySettings } from "../shared/settings";
-import { claimAction, preference, reorderGroups, moveDialog, readAgents, readArchive, ROOT } from "../shared/contracts";
+import { preference, reorderGroups, moveDialog, readArchive, ROOT } from "../shared/contracts";
 import { reconcileOrder, moveGroup } from "../shared/order";
 import { SortableGroups } from "./sortable-groups";
 import { archiveImpact } from "../shared/archive";
 import { topLevel, activityTime, branchStatus, bucket, latest, runningByParent, waitingReason, waitingHint } from "../shared/model";
 import { agents, setState, useData } from "./data";
-import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, isNavigationScreenActive, activateTerminalTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openAgentDraft, openArchivedAgent, bindAgentMenu } from "./web";
+import { hideNativeWorkspaces, hasBrowser, observeSelectedTab, hasOpenAgentTab, confirmDestructive, isWorkspaceRouteOpen, openArchivedAgent, bindAgentMenu } from "./web";
 import {
   palette,
   AgentLine,
@@ -582,126 +582,6 @@ export function Dialogs(p: PluginSidebarItemProps) {
     </Block>
     </>
   );
-}
-export function Destination({
-  navigation,
-  params,
-  theme,
-  host,
-}: PluginScreenProps) {
-  const paseo = usePaseo();
-  const claim = useRpc(claimAction);
-  const getAgents = useRpc(readAgents);
-  const started = useRef("");
-  const [error, setError] = useState("");
-  useLayoutEffect(() => {
-    const key = JSON.stringify(params);
-    if (started.current === key) return;
-    let cancelled = false;
-    setError("");
-    void (async () => {
-      // Retained screens can mount before the router commits the matching address.
-      for (let attempt = 0; !isNavigationScreenActive(params); attempt++) {
-        if (cancelled) return;
-        if (attempt >= 100) throw new Error("Не удалось открыть диалог. Повторите клик");
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      if (cancelled || started.current === key) return;
-      started.current = key;
-      if (!navigation) throw new Error("Навигация недоступна на этом клиенте");
-      if (params.agentId) {
-        if (params.archived === "true" && await openArchivedAgent(params.agentId, params.workspaceId, () => !cancelled && isNavigationScreenActive(params))) return;
-        if (params.workspaceId) {
-          await paseo.agents.ref(params.agentId).refresh();
-          navigation.openWorkspace({ workspaceId: params.workspaceId });
-        }
-        navigation.openAgent({ agentId: params.agentId });
-        return;
-      }
-      const id = params.workspaceId;
-      if (!id) throw new Error("Не выбрана папка");
-      if (
-        params.action &&
-        (!params.token || !(await claim({ token: params.token })).claimed)
-      ) {
-        navigation.openWorkspace({ workspaceId: id });
-        return;
-      }
-      if (params.action === "agent") {
-        if (openAgentDraft(id)) return;
-        // Phones: no draft route for plugins, so the new dialog takes the group's last provider.
-        const all = (await getAgents({ archives: [], limit: 0 })).agents;
-        const last =
-          all
-            .filter((a) => a.workspaceId === id && topLevel(a))
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ??
-          all[0];
-        const config = last
-          ? {
-              provider: `${last.provider}/${last.model ?? "default"}`,
-              modeId: last.currentModeId ?? undefined,
-              thinkingOptionId: last.thinkingOptionId ?? undefined,
-            }
-          : undefined;
-        const profiles = (await paseo.config.get()).config.agentProfiles ?? [];
-        const first = profiles[0];
-        const fallback = first
-          ? {
-              provider: `${first.provider}/${first.model ?? "default"}`,
-              modeId: first.modeId,
-              thinkingOptionId: first.thinkingOptionId,
-            }
-          : { provider: "claude/opus" };
-        const agent = await paseo.workspaces
-          .ref(id)
-          .agents.create({
-            config: config ?? fallback,
-            idempotencyKey: params.token,
-          });
-        navigation.openAgent({ agentId: agent.id });
-        return;
-      }
-      let terminalId = params.terminalId;
-      if (params.action === "terminal") {
-        const profiles =
-          (await paseo.config.get()).config.terminalProfiles ?? [];
-        const profile = profiles.find((p) => p.id === params.profileId);
-        if (params.profileId && !profile)
-          throw new Error("Профиль терминала удалён");
-        const terminal = await paseo.workspaces
-          .ref(id)
-          .terminals.create(
-            profile
-              ? {
-                  name: profile.name,
-                  command: profile.command,
-                  args: profile.args,
-                }
-              : {},
-          );
-        terminalId = terminal.id;
-      }
-      if (params.action === "browser") {
-        if (!navigation.openBrowser)
-          throw new Error("Браузер доступен только в настольном Paseo");
-        navigation.openBrowser({
-          workspaceId: id,
-          url: "https://www.google.com",
-        });
-        return;
-      }
-      navigation.openWorkspace({ workspaceId: id });
-      if (terminalId) await activateTerminalTab(terminalId);
-    })().catch((e) => {
-      if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось выполнить действие");
-    });
-    return () => { cancelled = true; };
-  }, [navigation, params, paseo, claim]);
-  return error ? (
-    <View style={{ padding: 16 }}>
-      <Text style={{ color: theme.colors.statusDanger }}>{error}</Text>
-    </View>
-  ) : null;
 }
 export function Archive({
   params,
