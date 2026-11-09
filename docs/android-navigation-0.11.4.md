@@ -30,6 +30,7 @@ Destination вынесен в отдельный клиентский модул
 - Исправленная 0.11.4: пять последовательных повторных открытий в той же Android-сессии через relay завершились видимой историей и полем сообщения. Результаты сохранены в fixed-reopens.json, скриншот в fixed-reopen.png.
 - Android error/retry: в отдельной временной копии плагина инъецирована однократная ошибка перехода. Сообщение и кнопка видны; нажатие "Повторить" открыло историю и поле сообщения. Скриншоты error.png и retry-success.png. Инъекция не входит в release.
 - React component tests: отложенный старт после родителя, стабильность при rerender, ошибка refresh и успешный retry, timeout зависшего refresh, подавление позднего ответа после retry/unmount/смены запроса/ухода с web route, native archive fallback и отмена до запуска.
+- Desktop web: отдельный Playwright chrome-headless-shell, 1440x1000, тестовый daemon. Три повторных открытия успешно перешли на workspace; снимок desktop.png. Личный Chrome не использовался.
 - npm run typecheck: успешно. npm test: 76 тестов успешно.
 
 Артефакты Android вне git: `/Users/agmazin/Library/Developer/paseo-dialogs/android-navigation-evidence`.
