@@ -174,6 +174,23 @@ test('same-agent naming: creation, scope, manual names, retries, archive and rec
 
       await assert.rejects(hooks.get('agent.create')({ request: { config: { mcpServers: { dialogs_title: {} } } } }), /name_conflict/);
     });
+    await t.test('ACP providers without exact preapproval are left unchanged', async () => {
+      const original = await readFile(join(home, 'config.json'), 'utf8');
+      const config = JSON.parse(original);
+      config.agents = { providers: {
+        deepseek: { extends: 'acp', label: 'DeepSeek', command: ['dsh', '--profile', 'acp'] },
+        'codex-isolated': { extends: 'codex', label: 'Codex Isolated' },
+      } };
+      await writeFile(join(home, 'config.json'), JSON.stringify(config));
+      try {
+        assert.equal(await hooks.get('agent.create')({ request: { config: { provider: 'deepseek', cwd: '/fixture' } } }), undefined);
+        assert.equal(await hooks.get('agent.create')({ request: { config: { provider: 'unknown-acp', cwd: '/fixture' } } }), undefined);
+        const custom = await hooks.get('agent.create')({ request: { config: { provider: 'codex-isolated', cwd: '/fixture' } } });
+        assert.ok(custom.config.mcpServers.dialogs_title, 'custom profile of a preapproval provider keeps self-title');
+      } finally {
+        await writeFile(join(home, 'config.json'), original);
+      }
+    });
     const state = JSON.parse(await readFile(join(home, 'plugin-data/paseo-dialogs/self-titles.json'), 'utf8'));
     assert.ok(Object.values(state).some((record: any) => record.done));
     assert.equal(state.history, undefined);
