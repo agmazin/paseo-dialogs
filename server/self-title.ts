@@ -9,6 +9,18 @@ import { firstPrompt } from "./first-prompt";
 import { autoTitle, splitKey, topLevel, validTitle } from "../shared/model";
 import { dialogClient } from "./transfer-client";
 
+const PREAPPROVAL_PROVIDERS = new Set(["claude", "codex", "opencode"]);
+function supportsPreapprovedMcp(provider: unknown, config: any): boolean {
+  if (typeof provider !== "string" || !provider) return true;
+  let id = provider;
+  for (let depth = 0; depth < 5 && !PREAPPROVAL_PROVIDERS.has(id); depth++) {
+    const base = config?.agents?.providers?.[id]?.extends;
+    if (typeof base !== "string" || base === id) return false;
+    id = base;
+  }
+  return PREAPPROVAL_PROVIDERS.has(id);
+}
+
 export const selfTitle = defineRpc({
   name: "dialogs.self-title",
   input: z.object({ token: z.string().uuid(), title: z.string().min(1).max(24) }).strict(),
@@ -51,6 +63,7 @@ export function registerSelfTitle(server: PluginServerContext, options: { plugin
     if (request.config.internal || (options.cwd && request.config.cwd !== options.cwd)) return;
     if (request.config.systemPrompt?.includes(marker)) return;
     const config = JSON.parse(await readFile(join(home, "config.json"), "utf8"));
+    if (!supportsPreapprovedMcp(request.config.provider, config)) return;
     const pluginPath = config.plugins?.[pluginId]?.path;
     if (typeof pluginPath !== "string" || !pluginPath.startsWith("/")) throw new Error("self_title_plugin_path_unavailable");
     if (request.config.mcpServers?.dialogs_title) throw new Error("self_title_mcp_name_conflict");
