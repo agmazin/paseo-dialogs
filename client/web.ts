@@ -55,11 +55,11 @@ export function providerSvg(provider: string, size: number, color: string) {
     "svg",
     {
       xmlns: "http://www.w3.org/2000/svg",
-      viewBox: "0 0 24 24",
+      viewBox: provider === "deepseek" ? "1.1 0.93 21.8 21.8" : "0 0 24 24",
       width: size,
       height: size,
       fill: color,
-      fillRule: provider === "codex" ? "evenodd" : undefined,
+      fillRule: provider === "codex" || provider === "deepseek" ? "evenodd" : undefined,
       "aria-hidden": true,
     },
     createElement("path", { d: providerPaths[provider] }),
