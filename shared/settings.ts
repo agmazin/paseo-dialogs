@@ -1,4 +1,4 @@
-import { defineSettings } from "@getpaseo/plugin";
+import { defineSettings, defineSubscription } from "@getpaseo/plugin";
 import { z } from "zod";
 
 export const displaySettings = defineSettings({
@@ -7,3 +7,12 @@ export const displaySettings = defineSettings({
   version: 1,
   schema: z.object({ showNativeWorkspaces: z.boolean().default(false) }),
 });
+
+export const sidebarVisibility = typeof defineSubscription === "function" ? defineSubscription({
+  name: "dialogs.sidebar-visibility",
+  input: z.object({}),
+  event: z.object({
+    host: z.object({ id: z.string(), label: z.string() }),
+    showNativeWorkspaces: z.boolean(),
+  }),
+}) : undefined;

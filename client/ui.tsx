@@ -655,20 +655,22 @@ export function Block({
   children,
   onAdd,
   compact = false,
+  fill = false,
 }: {
   theme: Theme;
   children: ReactNode;
   onAdd: (anchor?: MenuAnchor) => void;
   compact?: boolean;
+  fill?: boolean;
 }) {
   const p = palette(theme);
   // Header items do not scroll with the host list; keep sibling rows and the footer visible.
   const { height } = useWindowDimensions();
   const root = useRef<View>(null);
   const [availableHeight, setAvailableHeight] = useState<number | null>(null);
-  useEffect(() => observeSidebarHeight(root.current, setAvailableHeight), []);
+  useEffect(() => fill ? undefined : observeSidebarHeight(root.current, setAvailableHeight), [fill]);
   const body = (
-    <ScrollView testID="dialogs-scroll" nestedScrollEnabled style={{ minHeight: 0,
+    <ScrollView testID="dialogs-scroll" nestedScrollEnabled style={fill ? { flex: 1, minHeight: 0 } : { minHeight: 0,
       maxHeight: Math.min(Math.round(height * (Platform.OS === "web" ? 0.7 : 0.55)), availableHeight ?? Infinity) }}>
       {children}
     </ScrollView>
@@ -678,6 +680,7 @@ export function Block({
       ref={root}
       testID="dialogs-block"
       style={{
+        ...(fill ? { flex: 1, minHeight: 0 } : {}),
         marginTop: 8,
         marginHorizontal: 6,
         marginBottom: 4,

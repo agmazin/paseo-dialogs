@@ -3,7 +3,7 @@ import { SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/
 import { Text } from "react-native";
 import { displaySettings } from "../shared/settings";
 
-export function DisplaySettings({ theme }: PluginSurfaceProps) {
+export function DisplaySettings({ theme, layout, supportsView }: PluginSurfaceProps & { supportsView: boolean }) {
   const settings = useSettings(displaySettings);
   if (settings.status !== "ready") {
     return <Text style={{ color: theme.colors.foregroundMuted }}>
@@ -14,7 +14,9 @@ export function DisplaySettings({ theme }: PluginSurfaceProps) {
     <SettingsCard>
       <SettingsSwitch
         label="Показывать родной список Workspaces"
-        hint="Только на компьютере. На телефоне родной список остаётся видимым."
+        hint={supportsView
+          ? "Чтобы отдать всю панель диалогам, выключите этот переключатель и один раз выберите Диалоги в настройках боковой панели Paseo на устройстве."
+          : layout.platform === "web" ? "Управляет списком под блоком Диалоги." : "Чтобы скрыть список на телефоне, нужен Paseo с выбором вида боковой панели."}
         value={settings.values.showNativeWorkspaces}
         disabled={settings.saving}
         onValueChange={showNativeWorkspaces => {

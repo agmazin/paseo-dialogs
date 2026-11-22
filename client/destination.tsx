@@ -61,7 +61,11 @@ export function Destination({
       if (params.action === "agent") {
         if (openAgentDraft(id)) return;
         // Phones: no draft route for plugins, so the new dialog takes the group's last provider.
-        const all = (await getAgents({ archives: [], limit: 0 })).agents;
+        const [rows, { config: hostConfig }, availability] = await Promise.all([
+          getAgents({ archives: [], limit: 0 }), paseo.config.get(), paseo.providers.listAvailable(),
+        ]);
+        const available = new Set(availability.providers.filter(p => p.available).map(p => p.provider));
+        const all = rows.agents.filter(a => available.has(a.provider));
         const last =
           all
             .filter((a) => a.workspaceId === id && topLevel(a))
@@ -74,15 +78,16 @@ export function Destination({
               thinkingOptionId: last.thinkingOptionId ?? undefined,
             }
           : undefined;
-        const profiles = (await paseo.config.get()).config.agentProfiles ?? [];
-        const first = profiles[0];
+        const first = hostConfig.agentProfiles?.find(profile => available.has(profile.provider));
+        const defaultProvider = available.values().next().value;
+        if (!defaultProvider) throw new Error("В Paseo нет доступного провайдера для нового диалога");
         const fallback = first
           ? {
               provider: `${first.provider}/${first.model ?? "default"}`,
               modeId: first.modeId,
               thinkingOptionId: first.thinkingOptionId,
             }
-          : { provider: "claude/opus" };
+          : { provider: `${defaultProvider}/default` };
         if (!stillCurrent()) return;
         const agent = await paseo.workspaces
           .ref(id)
