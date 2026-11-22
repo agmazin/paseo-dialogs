@@ -221,13 +221,13 @@ function RenameGroup({ theme, name, onSubmit, onClose, dialog = false }: {
     </HostModal>
   );
 }
-export function Dialogs(p: PluginSidebarItemProps) {
+export function Dialogs(p: PluginSidebarItemProps & { fill?: boolean }) {
   const dimensions = useWindowDimensions();
   const action = useRpc(dialogAction);
   const [renameAgent, setRenameAgent] = useState<PaseoAgent | null>(null);
   useEffect(() => { void discoverRowLayout().catch(() => {}); }, []);
   const settings = useSettings(displaySettings);
-  const hideNative = settings.status === "ready" && !settings.values.showNativeWorkspaces;
+  const hideNative = !p.fill && settings.status === "ready" && !settings.values.showNativeWorkspaces;
   useEffect(() => hideNativeWorkspaces(hideNative), [hideNative]);
   const [popup, setPopup] = useState<{ Content: ComponentType<PluginPopoverProps>; anchor: MenuAnchor; width: number } | null>(null);
   const [popupHeight, setPopupHeight] = useState(220);
@@ -408,7 +408,7 @@ export function Dialogs(p: PluginSidebarItemProps) {
         <popup.Content {...p} close={closePopup} openScreen={input => { closePopup(); p.openScreen(input); }} />
       </View>
     </Modal>}
-    <Block theme={p.theme} compact={p.layout.compact} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
+    <Block theme={p.theme} compact={p.layout.compact} fill={p.fill} onAdd={(anchor) => show(CreateWorkspace, anchor, 290)}>
       {raw.filter((a) => !a.archivedAt).map((a) => (
         <Activity key={a.id} id={a.id} onActivity={onActivity} />
       ))}

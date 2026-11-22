@@ -9,12 +9,20 @@ import ts from "typescript";
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const require = createRequire(import.meta.url);
 
-function fixture() {
+function fixture(availableProviders = ["codex"]) {
   const calls: string[] = [];
   let committed = false;
   let refresh = async () => {};
   let active = true;
-  const api = { agents: { ref: () => ({ refresh: () => refresh() }) } };
+  const api = {
+    agents: { ref: () => ({ refresh: () => refresh() }) },
+    providers: { listAvailable: async () => ({ providers: availableProviders.map(provider => ({ provider, available: true })) }) },
+    config: { get: async () => ({ config: { agentProfiles: [{ provider: "claude", model: "opus" }] } }) },
+    workspaces: { ref: () => ({ agents: { create: async ({ config }: any) => {
+      calls.push("create:" + config.provider);
+      return { id: "new" };
+    } } }) },
+  };
   const navigation = {
     openAgent: ({ agentId }: any) => calls.push(`${committed ? "agent" : "lost"}:${agentId}`),
     openWorkspace: () => calls.push("workspace"),
@@ -25,10 +33,11 @@ function fixture() {
   }).outputText;
   new Function("exports", "require", code)(exports, (id: string) => {
     if (id === "react-native") return Object.fromEntries(["ActivityIndicator", "Pressable", "Text", "View"].map(key => [key, key]));
-    if (id === "@getpaseo/plugin/client") return { usePaseo: () => api, useRpc: () => async () => ({ claimed: true }) };
-    if (id === "../shared/contracts") return {};
+    if (id === "@getpaseo/plugin/client") return { usePaseo: () => api, useRpc: (contract: string) => async () =>
+      contract === "agents" ? { agents: [{ workspaceId: "w", provider: "claude", model: "opus" }] } : { claimed: true } };
+    if (id === "../shared/contracts") return { readAgents: "agents", claimAction: "claim" };
     if (id === "../shared/model") return { topLevel: () => true };
-    if (id === "./web") return { isNavigationScreenActive: () => active, openArchivedAgent: async () => false };
+    if (id === "./web") return { isNavigationScreenActive: () => active, openArchivedAgent: async () => false, openAgentDraft: () => false };
     return require(id);
   });
   function Parent({ params, navigation: nav }: any) {
@@ -156,4 +165,23 @@ test("unmount before the scheduled native redirect does not navigate", async t =
   await app.unmount();
   await tick(t);
   assert.deepEqual(app.calls, []);
+});
+
+test("creating on a phone skips unavailable providers in history and profiles", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const app = fixture(["deepseek"]);
+  await app.mount({ workspaceId: "w", action: "agent", token: "once" });
+  await tick(t);
+  assert.deepEqual(app.calls, ["create:deepseek/default", "agent:new"]);
+  await app.unmount();
+});
+
+test("creating with no available providers reports the reason before starting an agent", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const app = fixture([]);
+  await app.mount({ workspaceId: "w", action: "agent", token: "once" });
+  await tick(t);
+  assert.deepEqual(app.calls, []);
+  assert.match(app.text(), /нет доступного провайдера/);
+  await app.unmount();
 });
