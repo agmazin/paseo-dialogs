@@ -16,7 +16,12 @@ function fixture(availableProviders = ["codex"]) {
   let active = true;
   const api = {
     agents: { ref: () => ({ refresh: () => refresh() }) },
-    providers: { listAvailable: async () => ({ providers: availableProviders.map(provider => ({ provider, available: true })) }) },
+    providers: {
+      listAvailable: async () => ({ providers: availableProviders.map(provider => ({ provider, available: true })) }),
+      listModels: async (provider: string) => ({ models: [
+        { id: "other-model" }, { id: provider + "-preferred", isDefault: true },
+      ] }),
+    },
     config: { get: async () => ({ config: { agentProfiles: [{ provider: "claude", model: "opus" }] } }) },
     workspaces: { ref: () => ({ agents: { create: async ({ config }: any) => {
       calls.push("create:" + config.provider);
@@ -172,7 +177,7 @@ test("creating on a phone skips unavailable providers in history and profiles", 
   const app = fixture(["deepseek"]);
   await app.mount({ workspaceId: "w", action: "agent", token: "once" });
   await tick(t);
-  assert.deepEqual(app.calls, ["create:deepseek/default", "agent:new"]);
+  assert.deepEqual(app.calls, ["create:deepseek/deepseek-preferred", "agent:new"]);
   await app.unmount();
 });
 

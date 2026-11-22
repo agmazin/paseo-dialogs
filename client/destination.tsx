@@ -71,28 +71,24 @@ export function Destination({
             .filter((a) => a.workspaceId === id && topLevel(a))
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ??
           all[0];
-        const config = last
-          ? {
-              provider: `${last.provider}/${last.model ?? "default"}`,
-              modeId: last.currentModeId ?? undefined,
-              thinkingOptionId: last.thinkingOptionId ?? undefined,
-            }
-          : undefined;
         const first = hostConfig.agentProfiles?.find(profile => available.has(profile.provider));
-        const defaultProvider = available.values().next().value;
-        if (!defaultProvider) throw new Error("В Paseo нет доступного провайдера для нового диалога");
-        const fallback = first
-          ? {
-              provider: `${first.provider}/${first.model ?? "default"}`,
-              modeId: first.modeId,
-              thinkingOptionId: first.thinkingOptionId,
-            }
-          : { provider: `${defaultProvider}/default` };
+        const provider = last?.provider ?? first?.provider ?? available.values().next().value;
+        if (!provider) throw new Error("В Paseo нет доступного провайдера для нового диалога");
+        let model = last ? last.model : first?.model;
+        if (!model || model === "default") {
+          const { models = [] } = await paseo.providers.listModels(provider);
+          model = (models.find(entry => entry.isDefault) ?? models[0])?.id;
+          if (!model) throw new Error(`У провайдера ${provider} нет доступных моделей`);
+        }
         if (!stillCurrent()) return;
         const agent = await paseo.workspaces
           .ref(id)
           .agents.create({
-            config: config ?? fallback,
+            config: {
+              provider: `${provider}/${model}`,
+              modeId: last ? last.currentModeId ?? undefined : first?.modeId,
+              thinkingOptionId: last ? last.thinkingOptionId ?? undefined : first?.thinkingOptionId,
+            },
             idempotencyKey: params.token,
           });
         if (stillCurrent()) navigation.openAgent({ agentId: agent.id });
