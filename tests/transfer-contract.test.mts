@@ -14,7 +14,7 @@ function fixture(version = "0.13.2", serverId = "local") {
   return { client, calls };
 }
 test("private contract accepts only tested versions and the expected local server", async () => {
-  for (const version of ["0.12.0", "0.13.2", "0.14.0"]) {
+  for (const version of ["0.12.0", "0.13.2", "0.14.0", "0.16.2"]) {
     const f = fixture(version);
     assert.equal(await connectTransferClient(f.client, "local"), f.client);
     assert.deepEqual(f.calls, ["connect", "status"]);
