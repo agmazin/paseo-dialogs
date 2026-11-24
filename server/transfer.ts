@@ -181,7 +181,7 @@ export async function executeDialogAction(client: TransferClient & { refreshAgen
 }
 
 // Extended only after the isolated archive/import/rollback gate.
-const testedVersions = new Set(["0.12.0", "0.13.2", "0.14.0"]);
+const testedVersions = new Set(["0.12.0", "0.13.2", "0.14.0", "0.16.2"]);
 
 export async function connectTransferClient(instance: unknown, serverId: string, methods?: readonly string[]): Promise<TransferClient> {
   const connection = instance as TransferClient & {
